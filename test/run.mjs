@@ -1,0 +1,270 @@
+/**
+ * Offline checks for dsh-goodies.
+ *
+ * Run `node build.mjs` first (the npm test script does), then this suite
+ * compares the committed `lib/` artifacts with what the current sources
+ * produce and exercises the pure helpers.
+ */
+import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { renderArtifacts } from "../build.mjs";
+
+const require = createRequire(import.meta.url);
+const shared = require("../src/shared.cjs");
+const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+
+let passed = 0;
+const failures = [];
+
+function check(name, condition, detail) {
+  if (condition) {
+    passed += 1;
+    return;
+  }
+  failures.push({ name, detail });
+}
+
+function equal(name, actual, expected) {
+  check(name, Object.is(actual, expected), `expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+}
+
+// -- configuration ----------------------------------------------------------
+
+const defaults = shared.normalizeConfig(null);
+equal("default effortShift", defaults.effortShift, true);
+equal("default liveSpeed", defaults.liveSpeed, true);
+equal("default turnReport", defaults.turnReport, true);
+equal("default completionNotify", defaults.completionNotify, false);
+equal("default notifySound", defaults.notifySound, false);
+equal("default notifyMinSeconds", defaults.notifyMinSeconds, 5);
+equal("default reduceMotion", defaults.reduceMotion, false);
+
+const coerced = shared.normalizeConfig({
+  effortShift: false,
+  liveSpeed: "yes",
+  notifyMinSeconds: 999,
+  unknown: "dropped",
+});
+equal("coerce boolean", coerced.effortShift, false);
+equal("reject non-boolean", coerced.liveSpeed, true);
+equal("clamp number", coerced.notifyMinSeconds, 120);
+equal("drop unknown", Object.prototype.hasOwnProperty.call(coerced, "unknown"), false);
+equal("normalize is stable", shared.sameConfig(coerced, shared.normalizeConfig(coerced)), true);
+
+// -- token estimation -------------------------------------------------------
+
+equal("estimate ascii", shared.estimateTokensFromBlocks([{ kind: "text", text: "abcdefgh" }]), 2);
+equal("estimate cjk", shared.estimateTokensFromBlocks([{ kind: "text", text: "你好世界" }]), 4);
+equal("estimate ignores tools", shared.estimateTokensFromBlocks([{ kind: "tool-call", text: "ignored" }]), 0);
+equal("count chars", shared.countChars([{ kind: "reasoning", text: "abc" }, { kind: "text", text: "de" }]), 5);
+
+// -- turn report ------------------------------------------------------------
+
+const nodes = [
+  {
+    kind: "assistant",
+    turn: 1,
+    timing: { stepStartTime: 1000, firstTokenTime: 1500, completedTime: 4000 },
+    usage: { outputTokens: 100 },
+  },
+  {
+    kind: "assistant",
+    turn: 1,
+    timing: { stepStartTime: 4000, firstTokenTime: 4500, completedTime: 7000 },
+    usage: { outputTokens: 50 },
+  },
+  {
+    kind: "assistant",
+    turn: 2,
+    timing: { stepStartTime: 8000, firstTokenTime: 9000, completedTime: 10000 },
+    usage: { outputTokens: 10 },
+  },
+  { kind: "tool-result", turn: 1, callTime: 4000, time: 4200 },
+];
+const report = shared.readTurnReport(nodes, 1);
+equal("report steps", report.steps, 2);
+equal("report ttft", report.ttftMs, 500);
+equal("report duration", report.durationMs, 6000);
+equal("report tokens", report.tokens, 150);
+equal("report speed", Math.round(report.tps), 30);
+equal("report missing turn", shared.readTurnReport(nodes, 9), null);
+equal("report finds last node", shared.findAssistantNode(nodes, 2).usage.outputTokens, 10);
+equal("report handles no usage", shared.readTurnReport([
+  { kind: "assistant", turn: 3, timing: { stepStartTime: 1, firstTokenTime: 2, completedTime: 3 } },
+], 3).tokens, null);
+equal("derived usage output", shared.readTurnUsage(nodes, 1).outputTokens, 150);
+equal("derived usage missing", shared.readTurnUsage(nodes, 9), null);
+equal(
+  "derived usage buckets",
+  JSON.stringify(shared.readTurnUsage([
+    {
+      kind: "assistant",
+      turn: 4,
+      usage: {
+        uncachedInputTokens: 22,
+        outputTokens: 7,
+        cacheReadTokens: 30,
+        cacheWriteTokens: 2,
+      },
+    },
+  ], 4)),
+  JSON.stringify({ inputTokens: 22, outputTokens: 7, cacheReadTokens: 30, cacheWriteTokens: 2 })
+);
+
+// -- effort derivation ------------------------------------------------------
+
+const explicit = {
+  current: { provider: "p", model: "m", reasoningEffort: "medium" },
+  groups: [{
+    id: "p",
+    models: [{
+      id: "m",
+      reasoning: {
+        defaultEffort: "low",
+        efforts: [
+          { id: "low", name: "Low" },
+          { id: "medium", name: "Medium" },
+          { id: "high", name: "High" },
+        ],
+      },
+    }],
+  }],
+};
+const effortView = shared.deriveEffort(explicit);
+equal("effort choices", effortView.choices.length, 3);
+equal("effort index", effortView.index, 1);
+equal("effort effective", effortView.effective, "medium");
+
+const providerDefault = {
+  current: { provider: "p", model: "m" },
+  groups: [{
+    id: "p",
+    models: [{
+      id: "m",
+      reasoning: {
+        efforts: [{ id: "low", name: "Low" }, { id: "high", name: "High" }],
+      },
+    }],
+  }],
+};
+const defaultView = shared.deriveEffort(providerDefault);
+equal("provider default included", defaultView.choices[0].id, undefined);
+equal("provider default selected", defaultView.index, 0);
+
+const single = {
+  current: { provider: "p", model: "m", reasoningEffort: "low" },
+  groups: [{
+    id: "p",
+    models: [{
+      id: "m",
+      reasoning: { defaultEffort: "low", efforts: [{ id: "low", name: "Low" }] },
+    }],
+  }],
+};
+equal("single level hidden", shared.deriveEffort(single), null);
+equal("no reasoning hidden", shared.deriveEffort({
+  current: { provider: "p", model: "m" },
+  groups: [{ id: "p", models: [{ id: "m" }] }],
+}), null);
+
+// -- formatting -------------------------------------------------------------
+
+equal("speed below ten", shared.formatSpeed(4.26), "4.3");
+equal("speed above ten", shared.formatSpeed(42.6), "43");
+equal("star breath dimmest", shared.starOpacity(0).toFixed(3), "0.220");
+equal("star breath brightest", shared.starOpacity(1000).toFixed(3), "1.000");
+equal("star breath repeats", shared.starOpacity(2000).toFixed(3), "0.220");
+{
+  const samples = [];
+  for (let at = 0; at <= 2000; at += 100) samples.push(shared.starOpacity(at));
+  const min = Math.min(...samples);
+  const max = Math.max(...samples);
+  check("star breath stays visible", min >= 0.22);
+  check("star breath reaches full", max >= 0.999);
+  check("star breath changes in steps", new Set(samples.map((v) => v.toFixed(2))).size >= 8);
+}
+equal("seconds short", shared.formatSeconds(1234), "1.2s");
+equal("seconds long", shared.formatSeconds(65000), "1m 05s");
+equal("tokens small", shared.formatTokens(999), "999");
+equal("tokens thousands", shared.formatTokens(1234), "1.2K");
+equal("tokens ten thousands", shared.formatTokens(12345), "12K");
+equal("tokens millions", shared.formatTokens(3582000), "3.6M");
+equal("tokens rounding to million", shared.formatTokens(999600), "1M");
+
+// -- notification gate ------------------------------------------------------
+
+equal("notify hidden long", shared.shouldNotify({ hidden: true, elapsedMs: 8000, minMs: 5000 }), true);
+equal("notify hidden short", shared.shouldNotify({ hidden: true, elapsedMs: 1000, minMs: 5000 }), false);
+equal("notify focused", shared.shouldNotify({ hidden: false, elapsedMs: 8000, minMs: 5000 }), false);
+equal("notify zero", shared.shouldNotify({ hidden: true, elapsedMs: 0, minMs: 0 }), false);
+
+// -- style contract ---------------------------------------------------------
+
+for (const selector of ["data-dtk-effort-menu", ".dtk-effort-fill", ".dtk-effort-thumb", ".dtk-effort-spark", ".dtk-live", ".dtk-live-star", ".dtk-report", ".dtk-card", ".dtk-switch"]) {
+  check(`css has ${selector}`, shared.CSS.includes(selector));
+}
+check("css respects reduced motion", shared.CSS.includes("prefers-reduced-motion"));
+
+
+// -- build artifacts --------------------------------------------------------
+
+const [sharedSource, clientSource, hostSource] = await Promise.all([
+  readFile(join(ROOT, "src/shared.cjs"), "utf8"),
+  readFile(join(ROOT, "src/client.js"), "utf8"),
+  readFile(join(ROOT, "src/index.mjs"), "utf8"),
+]);
+// Behaviour contracts for the slider rail and the HUD readout.
+check("passed level dots are hidden", clientSource.includes('tick <= safe ? "none"'));
+check("particles cover the rail height", clientSource.includes("--y") && /\(8 \+ Math\.random\(\) \* 84\)/.test(clientSource));
+check("hud total uses compact units", clientSource.includes("shared.formatTokens(shownTotal)"));
+check("hud speed survives a lagging usage sample", clientSource.includes("Math.max(exact, estimate)"));
+
+const artifacts = renderArtifacts({ shared: sharedSource, client: clientSource, host: hostSource });
+
+for (const [name, expected] of Object.entries(artifacts)) {
+  let actual = "";
+  try {
+    actual = await readFile(join(ROOT, name), "utf8");
+  } catch {
+    actual = "";
+  }
+  check(`${name} is current`, actual === expected, `${name} differs from the current sources`);
+}
+
+const bundle = artifacts["lib/client.js"];
+for (const marker of [
+  "data-dtk-effort-menu",
+  "dsh-goodies-live-speed",
+  "dsh-goodies-turn-report",
+  "plugins.bundle.config",
+  "settings.plugin.item",
+]) {
+  check(`bundle has ${marker}`, bundle.includes(marker));
+}
+check(
+  "bundle requires only the shell modules",
+  !/require\(\s*["'][^"']+["']\s*\)/.test(bundle.replace(/require\("react"\)/g, "").replace(/require\("react-dom"\)/g, ""))
+);
+
+// -- locale metadata --------------------------------------------------------
+
+const [zh, en] = await Promise.all([
+  readFile(join(ROOT, "locale/zh.json"), "utf8").then(JSON.parse),
+  readFile(join(ROOT, "locale/en.json"), "utf8").then(JSON.parse),
+]);
+equal("locale meta keys match", JSON.stringify(Object.keys(zh.meta).sort()), JSON.stringify(Object.keys(en.meta).sort()));
+check("zh locale has a title", typeof zh.meta.title === "string" && zh.meta.title.length > 0);
+check("en locale has a description", typeof en.meta.description === "string" && en.meta.description.length > 0);
+
+// -- report ----------------------------------------------------------------
+
+if (failures.length > 0) {
+  console.error(`FAIL ${failures.length} / ${passed + failures.length}`);
+  for (const failure of failures) console.error(`- ${failure.name}${failure.detail ? `: ${failure.detail}` : ""}`);
+  process.exitCode = 1;
+} else {
+  console.log(`OK ${passed} checks`);
+}

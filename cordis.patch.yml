@@ -1,0 +1,8 @@
+# dsh-goodies layer.
+#
+# One row: the host half registers the `dsh-goodies` settings namespace; the
+# browser half owns the native-menu effort slider, the live speed reading, and
+# the per-turn report.
+- insert:
+    - id: dsh-goodies
+      name: dsh-goodies

@@ -1,0 +1,82 @@
+{
+  "name": "dsh-goodies",
+  "version": "0.1.0",
+  "description": "Small conveniences for the DeepSeek Harness Web GUI: a Codex-style effort slider in the model menu, a live tokens/second and turn-total readout, and a per-answer report.",
+  "type": "module",
+  "icon": "icon.svg",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./locale/*": "./locale/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "locale",
+    "cordis.patch.yml",
+    "icon.svg",
+    "README.md",
+    "README.en.md",
+    "CHANGELOG.md",
+    "CHANGELOG.en.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "dsh": ">=0.2.0-rc.1 <0.3.0-0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    },
+    "compatibility": {
+      "dshReleases": {
+        "0.2.0-rc.1": "compatible",
+        "0.2.0-rc.2": "compatible",
+        "0.2.1-alpha.1": "compatible",
+        "0.2.1-alpha.2": "compatible",
+        "0.2.1-alpha.3": "compatible",
+        "0.2.1-alpha.4": "compatible",
+        "0.2.1-alpha.5": "compatible",
+        "0.2.1-rc.1": "compatible",
+        "0.2.1-rc.2": "compatible"
+      }
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/schemastery": "^3.18.0",
+    "react": "^18.2.0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/schemastery": {
+      "optional": true
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node build.mjs && node test/run.mjs",
+    "verify": "node build.mjs && node test/run.mjs",
+    "prepublishOnly": "node build.mjs && node test/run.mjs"
+  },
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "dsh-plugin",
+    "effort",
+    "reasoning-effort",
+    "tokens-per-second",
+    "usage"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LyaxZ/dsh-goodies.git"
+  },
+  "homepage": "https://github.com/LyaxZ/dsh-goodies#readme",
+  "bugs": {
+    "url": "https://github.com/LyaxZ/dsh-goodies/issues"
+  }
+}
