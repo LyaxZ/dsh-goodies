@@ -2,6 +2,12 @@
 
 Notable changes to **dsh-goodies** land here. The Chinese edition lives in [CHANGELOG.md](CHANGELOG.md).
 
+## [0.1.1] - 2026-10-22
+
+### Changed
+
+- **The compatibility claim now lists only the releases that were checked**: the supported range narrows to DSH 0.2.1-rc.1 and 0.2.1-rc.2, and prereleases that were never tested are no longer named.
+
 ## [0.1.0] - 2026-10-21
 
 First release: a browser-only plugin with an effort slider, a live speed and turn-total readout beside the running status, and a per-answer report, each behind its own switch.
