@@ -1,6 +1,6 @@
 # Changelog
 
-Notable changes to **dsh-goodies** land here. The Chinese edition lives in [CHANGELOG.md](CHANGELOG.md).
+Notable changes to **dsh-goodies** land here. Each entry is compared against the previous release only; internal iteration stays out. The Chinese edition lives in [CHANGELOG.md](CHANGELOG.md).
 
 ## [0.1.1] - 2026-10-22
 
@@ -21,12 +21,3 @@ First release: a browser-only plugin with an effort slider, a live speed and tur
 - **Turn total**: same accounting as the turn usage panel, abbreviated with K / M / B above a thousand, monotonic while the turn runs.
 - **Per-answer report**: input · output · cached next to the usage pill, total time and output speed next to the answer's time, an em dash when a piece is missing.
 - **Settings card and reduce motion**: one switch per feature; reduce motion only stops animation and never changes a reading.
-
-### Fixed
-
-- **A blue sliver at the leftmost level**: the fill now ends at the thumb centre and is exactly zero at the first level.
-- **The thumb looked like a rounded rectangle**: `corner-shape` makes the thumb, the rail and the fill properly round.
-- **A seam between fill and thumb**: the fill runs under the thumb centre and is masked to the thumb circle, so the corners no longer show the rail behind.
-- **Position jumping back during rapid taps**: a single animation loop now continues from the thumb's real position when the target changes.
-- **The live HUD crashed as soon as it appeared**: the render path referenced a removed variable; elapsed time is computed from the start again.
-- **The total showed a whole-session figure**: it now aggregates the current turn instead of the whole log.
