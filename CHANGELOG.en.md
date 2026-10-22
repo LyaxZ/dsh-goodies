@@ -2,6 +2,18 @@
 
 Notable changes to **dsh-goodies** land here. Each entry is compared against the previous release only; internal iteration stays out. The Chinese edition lives in [CHANGELOG.md](CHANGELOG.md).
 
+## [0.1.4] - 2026-10-22
+
+### Added
+
+- **Completion notification**: a system notification when a turn finishes, titled with the session and carrying how long it took; clicking it returns to that session. It also fires while the page is in front, and falls back to flashing the title without permission.
+- **Notification sound**: an optional soft chime for the completion notification, with its own switch.
+
+### Changed
+
+- **The settings card gained two rows**: the notification switch, and the permission status with a request button. The old "reduce motion" switch is gone; the system-level reduced-motion preference still applies.
+- **A turn with very few output tokens shows no speed**: most of its time is connection and first-token wait, so the derived rate means nothing and the field is now omitted.
+
 ## [0.1.3] - 2026-10-22
 
 ### Changed
