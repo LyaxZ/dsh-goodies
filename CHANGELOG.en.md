@@ -2,6 +2,19 @@
 
 Notable changes to **dsh-goodies** land here. Each entry is compared against the previous release only; internal iteration stays out. The Chinese edition lives in [CHANGELOG.md](CHANGELOG.md).
 
+## [0.1.2] - 2026-10-22
+
+### Changed
+
+- **The reasoning panel opens and closes more gently**: it fades in more slowly and now fades out, whether you use the back button, Escape, Shift+Tab, or a click outside.
+- **A back button in the panel's top-left corner**: one click returns to the model list without closing the menu.
+- **The report's speed shows up more often**: it prefers the time actually spent producing text, and falls back to an estimate over generation time only.
+
+### Fixed
+
+- **The pane did not open when it was reopened right after going back**: it opens again immediately, and the menu no longer stays blank.
+- **Leaving the reasoning pane flashed a whole panel once**: the panel is no longer rebuilt during the return, and it never covers the model list that just appeared.
+
 ## [0.1.1] - 2026-10-22
 
 ### Changed
