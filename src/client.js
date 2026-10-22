@@ -61,18 +61,20 @@ var zh = {
   "settings.report": "每条回答成绩单",
   "settings.reportDesc": "用量右边显示输入·输出·缓存，时间右边显示总用时和输出速度。",
   "settings.notify": "完成通知",
-  "settings.notifyDesc": "页面在后台时，本轮结束发系统通知并闪烁标题。",
+  "settings.notifyDesc": "每一轮结束时发系统通知并闪烁标题，页面在前台也会提醒。",
   "settings.sound": "通知提示音",
   "settings.soundDesc": "完成时播放一声轻提示音；默认关闭。",
   "settings.min": "最短通知时长",
   "settings.minDesc": "短于这个秒数的回答不通知，避免刷屏。",
-  "settings.reduce": "减少动效",
-  "settings.reduceDesc": "关闭换挡、流光和粒子动画，保留功能。",
   "settings.permission": "系统通知权限",
   "settings.permission.granted": "已授权",
   "settings.permission.denied": "浏览器已拒绝，请在站点设置里恢复",
   "settings.permission.default": "未授权",
   "settings.permission.request": "请求权限",
+  "settings.permission.hint": "授权后才会弹系统通知，被拒时只闪烁标题",
+  "settings.notify.watching": "正在监听 {total} 个会话 · 当前页面{page}",
+  "settings.notify.pageRunning": "正在运行",
+  "settings.notify.pageIdle": "空闲",
   "settings.permission.unsupported": "当前浏览器不支持",
   "settings.saved": "设置保存在当前 profile。",
   "settings.unavailable": "设置服务未就绪，当前改动只在本次页面生效。",
@@ -110,18 +112,20 @@ var en = {
   "settings.report": "Per-answer report",
   "settings.reportDesc": "Shows input · output · cached next to usage, and total time plus output speed next to the answer's time.",
   "settings.notify": "Completion notification",
-  "settings.notifyDesc": "When the page is in the background, notify and flash the title after a turn.",
+  "settings.notifyDesc": "Notify and flash the title when a turn finishes, even while the page is in front.",
   "settings.sound": "Notification sound",
   "settings.soundDesc": "A soft two-tone chime on completion; off by default.",
   "settings.min": "Minimum notification length",
   "settings.minDesc": "Replies shorter than this many seconds stay silent.",
-  "settings.reduce": "Reduce motion",
-  "settings.reduceDesc": "Turns off the shift, glow and particle animations, keeping the features.",
   "settings.permission": "System notification permission",
   "settings.permission.granted": "Granted",
   "settings.permission.denied": "Blocked by the browser; restore it in the site settings",
   "settings.permission.default": "Not granted",
   "settings.permission.request": "Request permission",
+  "settings.permission.hint": "granted, the browser can raise a system notification; otherwise only the title flashes",
+  "settings.notify.watching": "Watching {total} sessions · this page is {page}",
+  "settings.notify.pageRunning": "running",
+  "settings.notify.pageIdle": "idle",
   "settings.permission.unsupported": "Not supported by this browser",
   "settings.saved": "Settings are saved in the current profile.",
   "settings.unavailable": "The settings service is not ready; changes apply to this page only.",
@@ -231,11 +235,32 @@ function subscribeScope(listener) {
   };
 }
 
+/** Local fields the host refused to store, kept so a switch still means something. */
+var OVERRIDE_KEY = "dsh-goodies.overrides";
+
+function readOverrides() {
+  try {
+    var raw = window.localStorage.getItem(OVERRIDE_KEY);
+    var parsed = raw ? JSON.parse(raw) : null;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (error) {
+    return {};
+  }
+}
+
+function writeOverrides(next) {
+  try {
+    window.localStorage.setItem(OVERRIDE_KEY, JSON.stringify(next));
+  } catch (error) {
+    // A browser that forbids storage simply keeps the value for this session.
+  }
+}
+
 /** Adopt the real form once the host serves it; later reads update the store. */
 function readScope() {
   if (writeDepth > 0) return;
   var snapshot = scopeSnapshot();
-  if (snapshot && snapshot.status === "ready") setConfig(snapshot.value);
+  if (snapshot && snapshot.status === "ready") setConfig(shared.mergeOverrides(snapshot.value, readOverrides()));
 }
 
 function adoptScope(target) {
@@ -292,10 +317,18 @@ function writeField(field, value) {
   var finish = function (accepted) {
     writeDepth = Math.max(0, writeDepth - 1);
     if (accepted === false) {
-      var revert = {};
-      revert[field] = before;
-      setConfig(Object.assign({}, config, revert));
+      // The host refused this field (a read-only document, or an entry it does
+      // not own). Keep the choice locally instead of flipping the switch back.
+      var overrides = readOverrides();
+      overrides[field] = normalized;
+      writeOverrides(overrides);
+      setConfig(Object.assign({}, config, patch));
       return;
+    }
+    var stored = readOverrides();
+    if (Object.prototype.hasOwnProperty.call(stored, field)) {
+      delete stored[field];
+      writeOverrides(stored);
     }
     readScope();
   };
@@ -337,16 +370,6 @@ function installStyles() {
   style.dataset.pluginCss = shared.STYLE_ID;
   style.textContent = shared.CSS;
   document.head.appendChild(style);
-}
-
-function applyMotionPreference() {
-  if (typeof document === "undefined" || !document.documentElement) return;
-  try {
-    if (getConfig().reduceMotion) document.documentElement.setAttribute("data-dtk-reduce-motion", "");
-    else document.documentElement.removeAttribute("data-dtk-reduce-motion");
-  } catch (error) {
-    // The document may be tearing down.
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1537,7 +1560,14 @@ function liveUsageTotal(snapshot) {
 
 function LiveSpeed(props) {
   if (typeof props.useChat !== "function") return null;
-  return h(LiveSpeedBody, props);
+  // The composer slot stays mounted while a session is open, so the completion
+  // watcher rides along with it instead of needing a seat of its own.
+  return h(
+    React.Fragment,
+    null,
+    h(NotificationHost, { sessions: sessionsService, notify: notifyCompletion, t: props.t }),
+    h(LiveSpeedBody, props)
+  );
 }
 
 function LiveSpeedBody(props) {
@@ -1951,30 +1981,15 @@ function TurnReportBody(props) {
   if (report && report.durationMs !== null) {
     timing.push({ key: "total", text: t("report.total", { value: shared.formatSeconds(report.durationMs) }) });
   }
-  // Speed is measured when the turn carries decode timings; otherwise it comes
-  // from the time the answer actually spent working — a step's own span, or the
-  // turn minus its tool calls — and only as a last resort from the whole span.
+  // Speed needs a measured generation window. Dividing a whole turn — most of
+  // which can be connecting, waiting or tool time — by two tokens produces a
+  // number that means nothing, so those turns show no speed at all.
   var measuredTps =
     report && report.tps !== null ? report.tps : report && report.sampledTps !== null ? report.sampledTps : null;
   var busyTps = report && report.approxTps !== null ? report.approxTps : null;
-  var derivedTps = null;
-  if (
-    measuredTps === null &&
-    busyTps === null &&
-    liveTps === null &&
-    outputValue !== null &&
-    outputValue > 0 &&
-    report &&
-    report.durationMs !== null &&
-    report.durationMs > 0
-  ) {
-    var decodeSpan =
-      report.ttftMs !== null && report.ttftMs < report.durationMs ? report.durationMs - report.ttftMs : report.durationMs;
-    if (decodeSpan > 0) derivedTps = outputValue / (decodeSpan / 1000);
-  }
-  var speedTps =
-    measuredTps !== null ? measuredTps : busyTps !== null ? busyTps : liveTps !== null ? liveTps : derivedTps;
-  if (speedTps !== null && speedTps > 0) {
+  var speedTps = measuredTps !== null ? measuredTps : busyTps !== null ? busyTps : liveTps !== null ? liveTps : null;
+  var enoughToJudge = outputValue === null || outputValue >= 24;
+  if (speedTps !== null && speedTps > 0 && (measuredTps !== null || enoughToJudge)) {
     var speedText =
       measuredTps !== null
         ? t("report.speed", { value: shared.formatSpeed(speedTps) })
@@ -2029,60 +2044,107 @@ function NotificationHost(props) {
   var cfg = useConfig();
   var sessions = props.sessions;
   var notify = props.notify;
+  var t = typeof props.t === "function" ? props.t : fallbackT;
 
   useEffect(
     function () {
-      if (!cfg.completionNotify || !sessions || !sessions.list || typeof sessions.list.subscribe !== "function") {
-        return undefined;
-      }
-      var previous = new Map();
-      var read = function () {
-        var snapshot = null;
-        try {
-          snapshot = sessions.list.getSnapshot();
-        } catch (error) {
+      if (!cfg.completionNotify) return undefined;
+      // The session list keeps its own `running` bookkeeping, and a list that
+      // never flips it leaves the watcher blind. The running row in the chat is
+      // the state the user actually sees, so the run is timed from that.
+      var startedAt = 0;
+      var check = function () {
+        var running = document.querySelector("[data-chat-running]") !== null;
+        if (running) {
+          if (startedAt === 0) startedAt = Date.now();
           return;
         }
-        var byId = snapshot && snapshot.byId ? snapshot.byId : {};
-        var now = Date.now();
-        for (var id in byId) {
-          if (!Object.prototype.hasOwnProperty.call(byId, id)) continue;
-          var row = byId[id];
-          var before = previous.get(id);
-          var running = row && row.running === true;
-          if (before && before.running && !running) {
-            var elapsed = before.since ? now - before.since : 0;
-            if (
-              shared.shouldNotify({
-                hidden: !document.hasFocus(),
-                elapsedMs: elapsed,
-                minMs: cfg.notifyMinSeconds * 1000,
-              })
-            ) {
-              notify(row, elapsed);
-            }
-          }
-          previous.set(id, {
-            running: running,
-            since: running ? (before && before.running ? before.since : now) : 0,
-          });
+        if (startedAt === 0) return;
+        var elapsed = Date.now() - startedAt;
+        startedAt = 0;
+        if (shared.shouldNotify({ elapsedMs: elapsed, minMs: cfg.notifyMinSeconds * 1000 })) {
+          notify(null, t, sessionRow(sessions), elapsed);
         }
       };
-      var unsubscribe = sessions.list.subscribe(read);
-      read();
+      var timer = setInterval(check, 400);
+      // A background tab throttles that timer hard, so the DOM changes are
+      // watched as well: the run row appearing or leaving is the same signal
+      // without waiting for the next tick.
+      var observer = null;
+      if (typeof MutationObserver !== "undefined") {
+        observer = new MutationObserver(check);
+        observer.observe(document.body, { childList: true, subtree: true });
+      }
+      check();
       return function () {
-        unsubscribe();
+        clearInterval(timer);
+        if (observer !== null) observer.disconnect();
       };
     },
-    [cfg.completionNotify, cfg.notifyMinSeconds, cfg.notifySound, sessions, notify]
+    [cfg.completionNotify, cfg.notifyMinSeconds, cfg.notifySound, sessions, notify, t]
   );
 
+  return null;
+}
+
+/** The row of the session on screen, for the notification's title. */
+function sessionRow(sessions) {
+  var id = activeSessionId;
+  if (!id || !sessions || !sessions.list) return null;
+  try {
+    var rows = shared.readSessionRows(sessions.list.getSnapshot());
+    for (var index = 0; index < rows.length; index += 1) {
+      if (String(rows[index][0]) === String(id)) return rows[index][1];
+    }
+  } catch (error) {
+    return null;
+  }
   return null;
 }
 
 // ---------------------------------------------------------------------------
 // Settings card
 // ---------------------------------------------------------------------------
+
+/** How many sessions the notification watcher can see right now. */
+function useSessionCounts() {
+  var countsState = useState({ total: 0, pageRunning: false });
+  var counts = countsState[0];
+  var setCounts = countsState[1];
+  useEffect(
+    function () {
+      var total = 0;
+      var measure = function () {
+        setCounts({ total: total, pageRunning: document.querySelector("[data-chat-running]") !== null });
+      };
+      var service = sessionsService;
+      var unsubscribe = function () {};
+      if (service && service.list && typeof service.list.subscribe === "function") {
+        var read = function () {
+          var rows = [];
+          try {
+            rows = shared.readSessionRows(service.list.getSnapshot());
+          } catch (error) {
+            rows = [];
+          }
+          total = rows.length;
+          measure();
+        };
+        unsubscribe = service.list.subscribe(read);
+        read();
+      } else {
+        measure();
+      }
+      var timer = setInterval(measure, 500);
+      return function () {
+        clearInterval(timer);
+        unsubscribe();
+      };
+    },
+    []
+  );
+  return counts;
+}
 
 function permissionState() {
   try {
@@ -2136,6 +2198,7 @@ function SettingsCard(props) {
   var permissionStore = useState(permissionState);
   var permission = permissionStore[0];
   var setPermission = permissionStore[1];
+  var counts = useSessionCounts();
 
   function requestPermission() {
     if (typeof Notification === "undefined" || typeof Notification.requestPermission !== "function") return;
@@ -2181,7 +2244,37 @@ function SettingsCard(props) {
     toggle("effortShift", t("settings.effort"), t("settings.effortDesc")),
     toggle("liveSpeed", t("settings.live"), t("settings.liveDesc")),
     toggle("turnReport", t("settings.report"), t("settings.reportDesc")),
-    toggle("reduceMotion", t("settings.reduce"), t("settings.reduceDesc")),
+    toggle("completionNotify", t("settings.notify"), t("settings.notifyDesc")),
+    cfg.completionNotify ? toggle("notifySound", t("settings.sound"), t("settings.soundDesc")) : null,
+    cfg.completionNotify
+      ? h(
+          CardRow,
+          {
+            label: t("settings.permission"),
+            description: permissionText(t, permission) + " · " + t("settings.permission.hint"),
+          },
+          h(
+            "button",
+            {
+              type: "button",
+              className: "dtk-link",
+              disabled: permission !== "default",
+              onClick: requestPermission,
+            },
+            t("settings.permission.request")
+          )
+        )
+      : null,
+    cfg.completionNotify
+      ? h(
+          "div",
+          { className: "dtk-perm-text", "data-goodies-notify-state": "" },
+          t("settings.notify.watching", {
+            total: String(counts.total),
+            page: counts.pageRunning ? t("settings.notify.pageRunning") : t("settings.notify.pageIdle"),
+          })
+        )
+      : null,
     h("div", { className: "dtk-card-foot" }, ready ? t("settings.saved") : t("settings.unavailable"))
   );
 }
@@ -2227,16 +2320,6 @@ export function apply(ctx) {
     workspaceService = scope.uiWorkspace || null;
   });
 
-  var stopConfig = subscribeConfig(applyMotionPreference);
-  applyMotionPreference();
-  ctx.effect(
-    function () {
-      return function () {
-        stopConfig();
-      };
-    },
-    "dsh-goodies: motion preference"
-  );
 
   ctx.effect(
     function () {

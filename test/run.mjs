@@ -40,7 +40,6 @@ equal("default turnReport", defaults.turnReport, true);
 equal("default completionNotify", defaults.completionNotify, false);
 equal("default notifySound", defaults.notifySound, false);
 equal("default notifyMinSeconds", defaults.notifyMinSeconds, 5);
-equal("default reduceMotion", defaults.reduceMotion, false);
 
 const coerced = shared.normalizeConfig({
   effortShift: false,
@@ -235,10 +234,21 @@ equal("tokens rounding to million", shared.formatTokens(999600), "1M");
 
 // -- notification gate ------------------------------------------------------
 
-equal("notify hidden long", shared.shouldNotify({ hidden: true, elapsedMs: 8000, minMs: 5000 }), true);
-equal("notify hidden short", shared.shouldNotify({ hidden: true, elapsedMs: 1000, minMs: 5000 }), false);
-equal("notify focused", shared.shouldNotify({ hidden: false, elapsedMs: 8000, minMs: 5000 }), false);
-equal("notify zero", shared.shouldNotify({ hidden: true, elapsedMs: 0, minMs: 0 }), false);
+equal("notify long turn", shared.shouldNotify({ elapsedMs: 8000, minMs: 5000 }), true);
+equal("notify short turn", shared.shouldNotify({ elapsedMs: 1000, minMs: 5000 }), false);
+equal("notify focused turn is announced too", shared.shouldNotify({ elapsedMs: 8000, minMs: 5000 }), true);
+equal("notify zero", shared.shouldNotify({ elapsedMs: 0, minMs: 0 }), false);
+equal("notify missing elapsed", shared.shouldNotify({ minMs: 0 }), false);
+{
+  // The session snapshot is a Map on 0.2.x; iterating it as an object silently
+  // yields nothing, which is why notifications never fired.
+  const mapSnapshot = { byId: new Map([["a", { running: true }], ["b", { running: false }]]) };
+  equal("session rows from a map", JSON.stringify(shared.readSessionRows(mapSnapshot)), JSON.stringify([["a", { running: true }], ["b", { running: false }]]));
+  equal("session rows from an object", shared.readSessionRows({ byId: { c: { running: true } } }).length, 1);
+  equal("session rows without a snapshot", shared.readSessionRows(null).length, 0);
+equal("local overrides win over the document", JSON.stringify(shared.mergeOverrides({ a: true, b: false }, { b: true })), JSON.stringify({ a: true, b: true }));
+equal("no overrides keeps the document", JSON.stringify(shared.mergeOverrides({ a: 1 }, null)), JSON.stringify({ a: 1 }));
+}
 
 // -- style contract ---------------------------------------------------------
 
@@ -264,7 +274,11 @@ check("css fades the panel out", shared.CSS.includes(".dtk-effort-panel--closing
 check("panel fade is not instant", /\.dtk-effort-content\{[^}]*transition:opacity \.3[0-9]?s/.test(shared.CSS));
 check("closing panels are discarded, not dropped", clientSource.includes("discardEffortPanel") && clientSource.includes("closeEffortPanel(menu)"));
 check("the panel offers a way back", clientSource.includes("dtk-effort-back") && shared.CSS.includes(".dtk-effort-back"));
-check("report speed always has a fallback", clientSource.includes("derivedTps"));
+check("the report only shows a measured speed", clientSource.includes("enoughToJudge") && !clientSource.includes("derivedTps"));
+check("the settings card exposes the notification", clientSource.includes('toggle("completionNotify"'));
+check("the notification watcher is mounted", clientSource.includes("h(NotificationHost") && clientSource.includes("notify(null, t, sessionRow(sessions), elapsed)"));
+check("the notification asks for permission", clientSource.includes("settings.permission.request") && clientSource.includes("permissionText(t, permission)"));
+check("a finished turn is announced even in front", !shared.shouldNotify.toString().includes("hidden"));
 
 const artifacts = renderArtifacts({ shared: sharedSource, client: clientSource, host: hostSource });
 
