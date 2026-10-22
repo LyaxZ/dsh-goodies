@@ -2,6 +2,20 @@
 
 Notable changes to **dsh-goodies** land here. Each entry is compared against the previous release only; internal iteration stays out. The Chinese edition lives in [CHANGELOG.md](CHANGELOG.md).
 
+## [0.1.3] - 2026-10-22
+
+### Changed
+
+- **The live reading follows the answer more closely**: the total takes the larger of the provider's usage and the text already produced, calibrated by the turn's own token-to-character ratio, so it moves as the text grows instead of waiting for a whole chunk.
+- **The speed is a rolling 1.2-second window**: no heavy smoothing, so it rises and falls with the actual pace.
+- **The report's average speed counts generation time only**: it prefers each step's first-token-to-finish span, then the sum of those spans, then the turn minus its tool calls.
+
+### Fixed
+
+- **The live reading restarted after switching sessions**: the total and the clock are kept per session and turn, so coming back shows the same numbers.
+- **The total could be smaller than the per-second speed**: both readings now come from the same source, and the total never drops below what has been produced.
+- **The report's speed read too low**: time spent in tools and waiting is no longer in the denominator.
+
 ## [0.1.2] - 2026-10-22
 
 ### Changed

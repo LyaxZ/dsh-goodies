@@ -1,6 +1,6 @@
 {
   "name": "dsh-goodies",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Small conveniences for the DeepSeek Harness Web GUI: a Codex-style effort slider in the model menu, a live tokens/second and turn-total readout, and a per-answer report.",
   "type": "module",
   "icon": "icon.svg",
