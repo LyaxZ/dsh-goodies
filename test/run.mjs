@@ -91,6 +91,18 @@ equal("report duration", report.durationMs, 6000);
 equal("report tokens", report.tokens, 150);
 equal("report speed", Math.round(report.tps), 30);
 equal("report missing turn", shared.readTurnReport(nodes, 9), null);
+equal("report sampled speed matches full timing", Math.round(report.sampledTps), 30);
+{
+  // Only the first step is timestamped: the speed must come from its decode
+  // span, not from the wall clock between the two steps.
+  const partial = [
+    { kind: "assistant", turn: 4, timing: { stepStartTime: 1000, firstTokenTime: 2000, completedTime: 3000 }, usage: { outputTokens: 90 } },
+    { kind: "assistant", turn: 4, timing: { stepStartTime: 9000 }, usage: { outputTokens: 10 } },
+  ];
+  const partialReport = shared.readTurnReport(partial, 4);
+  equal("report partial timing has no full speed", partialReport.tps, null);
+  equal("report partial timing still has a decode speed", Math.round(partialReport.sampledTps), 90);
+}
 equal("report finds last node", shared.findAssistantNode(nodes, 2).usage.outputTokens, 10);
 equal("report handles no usage", shared.readTurnReport([
   { kind: "assistant", turn: 3, timing: { stepStartTime: 1, firstTokenTime: 2, completedTime: 3 } },
@@ -221,6 +233,11 @@ check("passed level dots are hidden", clientSource.includes('tick <= safe ? "non
 check("particles cover the rail height", clientSource.includes("--y") && /\(8 \+ Math\.random\(\) \* 84\)/.test(clientSource));
 check("hud total uses compact units", clientSource.includes("shared.formatTokens(shownTotal)"));
 check("hud speed survives a lagging usage sample", clientSource.includes("Math.max(exact, estimate)"));
+check("css fades the panel out", shared.CSS.includes(".dtk-effort-panel--closing"));
+check("panel fade is not instant", /\.dtk-effort-content\{[^}]*transition:opacity \.3[0-9]?s/.test(shared.CSS));
+check("closing panels are discarded, not dropped", clientSource.includes("discardEffortPanel") && clientSource.includes("closeEffortPanel(menu)"));
+check("the panel offers a way back", clientSource.includes("dtk-effort-back") && shared.CSS.includes(".dtk-effort-back"));
+check("report speed always has a fallback", clientSource.includes("derivedTps"));
 
 const artifacts = renderArtifacts({ shared: sharedSource, client: clientSource, host: hostSource });
 

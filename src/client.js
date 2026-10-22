@@ -37,6 +37,7 @@ var zh = {
   "effort.default": "Default",
   "effort.defaultMarked": "{name} (Default)",
   "effort.busy": "正在切换思考强度…",
+  "effort.back": "返回模型列表",
   "live.title": "实时 {speed} tok/s · 合计 {tokens} tokens · 用时 {seconds}",
   "report.ttft": "首字 {value}",
   "report.input": "输入 {value}",
@@ -85,6 +86,7 @@ var en = {
   "effort.default": "Default",
   "effort.defaultMarked": "{name} (Default)",
   "effort.busy": "Switching reasoning effort…",
+  "effort.back": "Back to the model list",
   "live.title": "Now {speed} tok/s · Total {tokens} tokens · {seconds} elapsed",
   "report.ttft": "TTFT {value}",
   "report.input": "in {value}",
@@ -581,12 +583,55 @@ function isDefaultOptionLabel(text) {
   return text === effortT("effort.default") || /^default$/i.test(text) || text === "默认";
 }
 
+/**
+ * Let one panel fade out, then drop it. A panel that never became visible is
+ * removed at once, and one that is already fading is left alone.
+ */
+function discardEffortPanel(panel) {
+  if (!panel) return;
+  if (!panel.isConnected) {
+    panel.remove();
+    return;
+  }
+  if (panel.classList.contains("dtk-effort-panel--closing")) return;
+  if (panel.style.visibility === "hidden") {
+    panel.remove();
+    return;
+  }
+  panel.__menu = null;
+  panel.__dtkContent = null;
+  panel.classList.add("dtk-effort-panel--closing");
+  setTimeout(function () {
+    panel.remove();
+  }, 220);
+}
+
+function closeEffortPanel(menu) {
+  var panel = menu.__dtkPanel;
+  if (!panel) return;
+  menu.__dtkPanel = null;
+  // Remember which rows were on screen: the same rows coming back mean the
+  // native surface is still mid-swap, not that the pane was reopened.
+  panel.__dtkOwner = menu;
+  panel.__dtkRadios = effortButtons(menu);
+  discardEffortPanel(panel);
+}
+
+/** True when both lists hold the very same rows. */
+function sameRadios(left, right) {
+  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+  for (var index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) return false;
+  }
+  return true;
+}
+
 function scanEffortMenus() {
   if (typeof document === "undefined") return;
   var panels = document.querySelectorAll(".dtk-effort-panel");
   for (var panelIndex = 0; panelIndex < panels.length; panelIndex += 1) {
     var panel = panels[panelIndex];
-    if (!panel.__menu || !panel.__menu.isConnected) panel.remove();
+    if (!panel.__menu || !panel.__menu.isConnected) discardEffortPanel(panel);
   }
   var menus = document.querySelectorAll('div[role="menu"]');
   for (var index = 0; index < menus.length; index += 1) decorateEffortMenu(menus[index]);
@@ -719,6 +764,12 @@ function stopEffortSlider(menu) {
 function ensureEffortPanel(menu) {
   var panel = menu.__dtkPanel;
   if (panel && panel.isConnected) return panel;
+  // A panel still fading from the previous open would otherwise sit behind the
+  // new one for a moment.
+  var closing = document.querySelectorAll(".dtk-effort-panel--closing");
+  for (var closingIndex = 0; closingIndex < closing.length; closingIndex += 1) {
+    closing[closingIndex].remove();
+  }
   panel = document.createElement("div");
   panel.className = "dtk-effort-panel";
   panel.setAttribute("data-tone", menu.getAttribute("data-tone") || "0");
@@ -736,6 +787,43 @@ function ensureEffortPanel(menu) {
   content.className = "dtk-effort-content";
   panel.appendChild(content);
   panel.__dtkContent = content;
+  // The native menu has no clickable way back from the effort pane (Escape and
+  // Shift+Tab only), and the panel covers the menu anyway, so the panel owns
+  // one: it replays the key the native handler already listens for.
+  var backButton = document.createElement("button");
+  backButton.type = "button";
+  backButton.className = "dtk-effort-back";
+  backButton.setAttribute("aria-label", effortT("effort.back"));
+  backButton.setAttribute("title", effortT("effort.back"));
+  var backArrow = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  backArrow.setAttribute("viewBox", "0 0 16 16");
+  backArrow.setAttribute("width", "14");
+  backArrow.setAttribute("height", "14");
+  backArrow.setAttribute("aria-hidden", "true");
+  var backPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  backPath.setAttribute("d", "M10 3 L5 8 L10 13");
+  backPath.setAttribute("fill", "none");
+  backPath.setAttribute("stroke", "currentColor");
+  backPath.setAttribute("stroke-width", "1.8");
+  backPath.setAttribute("stroke-linecap", "round");
+  backPath.setAttribute("stroke-linejoin", "round");
+  backArrow.appendChild(backPath);
+  backButton.appendChild(backArrow);
+  backButton.addEventListener("mousedown", function (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+  backButton.addEventListener("click", function (event) {
+    event.preventDefault();
+    event.stopPropagation();
+    // Fade out now rather than after the native swap: waiting even one frame
+    // paints the still-opaque panel over the model list that just appeared.
+    menu.__dtkBackRadios = effortButtons(menu).slice();
+    menu.__dtkBackAt = Date.now();
+    menu.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    undecorateEffortMenu(menu);
+  });
+  content.appendChild(backButton);
   // The native menu closes on a document mousedown outside itself; the panel
   // is outside by design, so keep that event from reaching the menu.
   panel.addEventListener("mousedown", function (event) {
@@ -772,11 +860,7 @@ function placeEffortPanel(menu, anchor) {
 
 function undecorateEffortMenu(menu) {
   stopEffortSlider(menu);
-  if (menu.__dtkPanel) {
-    var fadingPanel = menu.__dtkPanel;
-    menu.__dtkPanel = null;
-    fadingPanel.remove();
-  }
+  closeEffortPanel(menu);
   menu.removeAttribute("data-dtk-effort-menu");
   menu.removeAttribute("data-tone");
   menu.style.removeProperty("--dtk-menu-count");
@@ -907,6 +991,17 @@ function decorateEffortMenu(menu) {
     undecorateEffortMenu(menu);
     return;
   }
+  // The native surface keeps the old rows on screen for a frame or two after
+  // a back while it swaps panes; decorating then builds a whole panel at the
+  // model list's position, which reads as a flash. The same rows coming back
+  // mean that swap is still in flight; new rows mean a real reopen.
+  if (menu.__dtkBackRadios !== undefined) {
+    if (sameRadios(menu.__dtkBackRadios, radios) && Date.now() - menu.__dtkBackAt < 1200) {
+      setTimeout(scheduleEffortMenuScan, 200);
+      return;
+    }
+    menu.__dtkBackRadios = undefined;
+  }
   var meta = currentModelMeta();
   if (!isEffortPane(radios, meta)) {
     undecorateEffortMenu(menu);
@@ -927,6 +1022,19 @@ function decorateEffortMenu(menu) {
     { left: measured.left, top: measured.top, bottom: measured.bottom, width: measured.width, height: measured.height };
   var panel = ensureEffortPanel(menu);
   menu.setAttribute("data-dtk-effort-menu", "");
+  // Escape and Shift+Tab are the native ways back; they swap the pane before
+  // anything else runs, so start the fade from inside the same key event.
+  if (!menu.__dtkKeyGuard) {
+    menu.__dtkKeyGuard = function (event) {
+      if (event.key !== "Escape" && !(event.key === "Tab" && event.shiftKey)) return;
+      var rows = effortButtons(menu);
+      if (rows.length < 2 || !menu.__dtkPanel) return;
+      menu.__dtkBackRadios = rows.slice();
+      menu.__dtkBackAt = Date.now();
+      undecorateEffortMenu(menu);
+    };
+    menu.addEventListener("keydown", menu.__dtkKeyGuard);
+  }
 
   var resolved = resolveEffortDefault(radios, meta);
   var defaultName = resolved.defaultName;
@@ -1799,10 +1907,34 @@ function TurnReportBody(props) {
   if (report && report.durationMs !== null) {
     timing.push({ key: "total", text: t("report.total", { value: shared.formatSeconds(report.durationMs) }) });
   }
-  if (report && report.tps !== null) {
-    timing.push({ key: "speed", text: t("report.speed", { value: shared.formatSpeed(report.tps) }) });
-  } else if (liveTps !== null) {
-    timing.push({ key: "speed", text: t("report.speedApprox", { value: shared.formatSpeed(liveTps) }) });
+  // Speed is measured when the turn carries decode timings; otherwise it is
+  // derived from the output tokens and the time the answer took, so the field
+  // does not silently disappear.
+  // Prefer a measured decode speed; only fall back to wall-clock time when the
+  // turn carries no decode timings at all and the live reading is gone.
+  var measuredTps =
+    report && report.tps !== null ? report.tps : report && report.sampledTps !== null ? report.sampledTps : null;
+  var derivedTps = null;
+  if (
+    measuredTps === null &&
+    liveTps === null &&
+    outputValue !== null &&
+    outputValue > 0 &&
+    report &&
+    report.durationMs !== null &&
+    report.durationMs > 0
+  ) {
+    var decodeSpan =
+      report.ttftMs !== null && report.ttftMs < report.durationMs ? report.durationMs - report.ttftMs : report.durationMs;
+    if (decodeSpan > 0) derivedTps = outputValue / (decodeSpan / 1000);
+  }
+  var speedTps = measuredTps !== null ? measuredTps : liveTps !== null ? liveTps : derivedTps;
+  if (speedTps !== null && speedTps > 0) {
+    var speedText =
+      measuredTps !== null
+        ? t("report.speed", { value: shared.formatSpeed(speedTps) })
+        : t("report.speedApprox", { value: shared.formatSpeed(speedTps) });
+    timing.push({ key: "speed", text: speedText });
   }
   if ((breakdown.length === 0 && timing.length === 0) || (usageTarget === null && timeTarget === null)) return null;
 
