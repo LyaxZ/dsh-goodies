@@ -104,6 +104,24 @@ function estimateTokensFromBlocks(blocks) {
   return Math.ceil(total);
 }
 
+/**
+ * Same estimate, from plain text already on screen.
+ * @param {string} text - rendered text of the streaming answer.
+ * @returns {number} estimated output tokens.
+ */
+function estimateTokensFromText(text) {
+  if (typeof text !== "string" || text.length === 0) return 0;
+  var total = 0;
+  for (var at = 0; at < text.length; at += 1) {
+    var cp = text.codePointAt(at);
+    if (cp > 0xffff) at += 1;
+    if (isCjk(cp)) total += 1;
+    else if (cp > 0x7f) total += 0.6;
+    else total += 0.25;
+  }
+  return Math.ceil(total);
+}
+
 /** Count characters in the visible text and reasoning blocks. */
 function countChars(blocks) {
   if (!Array.isArray(blocks)) return 0;
@@ -215,6 +233,31 @@ function readTurnReport(nodes, turn) {
   var tps =
     tokens !== null && tokens > 0 && hasDecode && decodeMs > 0 && untimedTokens === 0 ? tokens / (decodeMs / 1000) : null;
   var sampledTps = sampledTokens > 0 && sampledMs > 0 ? sampledTokens / (sampledMs / 1000) : null;
+
+  // When a step carries no first-token time, the time spent waiting is still
+  // separable: a step's own span, or the whole turn minus the tool calls in it.
+  var stepMs = 0;
+  for (var spanIndex = 0; spanIndex < steps.length; spanIndex += 1) {
+    var spanTiming = steps[spanIndex] && steps[spanIndex].timing;
+    if (
+      spanTiming &&
+      typeof spanTiming.stepStartTime === "number" &&
+      typeof spanTiming.completedTime === "number" &&
+      spanTiming.completedTime > spanTiming.stepStartTime
+    ) {
+      stepMs += spanTiming.completedTime - spanTiming.stepStartTime;
+    }
+  }
+  var toolMs = 0;
+  for (var toolIndex = 0; toolIndex < nodes.length; toolIndex += 1) {
+    var toolNode = nodes[toolIndex];
+    if (!toolNode || toolNode.kind !== "tool-result" || toolNode.turn !== turnNumber) continue;
+    if (typeof toolNode.callTime === "number" && typeof toolNode.time === "number" && toolNode.time > toolNode.callTime) {
+      toolMs += toolNode.time - toolNode.callTime;
+    }
+  }
+  var busyMs = stepMs > 0 ? stepMs : durationMs !== null ? Math.max(0, durationMs - toolMs) : 0;
+  var approxTps = tps === null && sampledTps === null && tokens !== null && tokens > 0 && busyMs > 0 ? tokens / (busyMs / 1000) : null;
   if (ttftMs === null && durationMs === null && tokens === null) return null;
   return {
     steps: steps.length,
@@ -223,6 +266,8 @@ function readTurnReport(nodes, turn) {
     tokens: tokens,
     tps: tps,
     sampledTps: sampledTps,
+    busyMs: busyMs,
+    approxTps: approxTps,
   };
 }
 
@@ -490,6 +535,7 @@ module.exports = {
   normalizeConfig: normalizeConfig,
   sameConfig: sameConfig,
   estimateTokensFromBlocks: estimateTokensFromBlocks,
+  estimateTokensFromText: estimateTokensFromText,
   countChars: countChars,
   normalizeTurn: normalizeTurn,
   findAssistantNode: findAssistantNode,

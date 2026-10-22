@@ -171,6 +171,9 @@ var workspaceService = null;
 var remoteSession = null;
 var activeSessionId = null;
 var liveTurnSpeeds = new Map();
+/** Per turn: the highest total shown so far, and when its clock started. */
+var liveTurnTotals = new Map();
+var liveTurnStart = new Map();
 
 function getConfig() {
   return config;
@@ -1461,6 +1464,19 @@ function liveEstimate(snapshot) {
   return partial ? shared.estimateTokensFromBlocks(partial.blocks) : 0;
 }
 
+/**
+ * Tokens for the answer being written, measured from what is already on
+ * screen. The store can arrive in coarse chunks; the DOM changes as the text
+ * grows, so this keeps the reading moving between chunks.
+ */
+function liveDomTokens() {
+  if (typeof document === "undefined") return 0;
+  var nodes = document.querySelectorAll('[data-chat-flow-kind="assistant"], [data-chat-flow-kind="assistant-step"]');
+  if (nodes.length === 0) return 0;
+  var text = nodes[nodes.length - 1].textContent || "";
+  return shared.estimateTokensFromText(text);
+}
+
 function liveExact(snapshot) {
   var nodes = snapshot && snapshot.nodes;
   if (!nodes || typeof nodes.values !== "function") return 0;
@@ -1533,6 +1549,7 @@ function LiveSpeedBody(props) {
   var estimate = useChat(liveEstimate);
   var exact = useChat(liveExact);
   var usageTotal = useChat(liveUsageTotal);
+  var turnKey = key === "" ? "" : (props.sessionId === undefined ? "" : String(props.sessionId) + ":") + String(key).split(":")[0];
   var nowState = useState(Date.now());
   var now = nowState[0];
   var setNow = nowState[1];
@@ -1541,6 +1558,9 @@ function LiveSpeedBody(props) {
   var lastTokenCount = useRef(0);
   var lastTokenAt = useRef(0);
   var lastTokenSeenAt = useRef(0);
+  var samplesRef = useRef([]);
+  var turnKeyRef = useRef("");
+  var calibration = useRef(1);
   useEffect(
     function () {
       if (props.sessionId !== undefined) activeSessionId = String(props.sessionId);
@@ -1582,21 +1602,32 @@ function LiveSpeedBody(props) {
   useEffect(
     function () {
       if (!running) {
-        startedAt.current = 0;
         lastSpeed.current = 0;
         lastTokenCount.current = 0;
         lastTokenAt.current = 0;
         lastTokenSeenAt.current = 0;
+        samplesRef.current.length = 0;
         setDisplay(0);
-        totalRef.current = 0;
-        setTotalTokens(0);
         return;
       }
       if (!cfg.liveSpeed) {
         setDisplay(0);
         return;
       }
-      if (startedAt.current === 0) startedAt.current = Date.now();
+      // Resume the turn's own clock and total: switching sessions and coming
+      // back must not restart the reading from zero.
+      if (turnKey !== "") turnKeyRef.current = turnKey;
+      if (turnKeyRef.current !== "") {
+        if (startedAt.current === 0) {
+          startedAt.current = liveTurnStart.get(turnKeyRef.current) || Date.now();
+          liveTurnStart.set(turnKeyRef.current, startedAt.current);
+        }
+        var stored = liveTurnTotals.get(turnKeyRef.current) || 0;
+        if (stored > totalRef.current) {
+          totalRef.current = stored;
+          setTotalTokens(stored);
+        }
+      }
       // Tick once when text starts flowing so the first reading is immediate.
       if (chars > 0) setNow(Date.now());
     },
@@ -1617,45 +1648,45 @@ function LiveSpeedBody(props) {
   );
 
   // Provider usage is authoritative but can lag behind the stream; the char
-  // estimate keeps the reading alive until the first usage sample lands.
-  var tokens = Math.max(exact, estimate);
+  // estimate and the text already on screen keep the reading alive until it
+  // lands, and the DOM copy is read on every tick so a coarse store update
+  // cannot leave the reading frozen for a whole chunk.
+  var domTokens = running && cfg.liveSpeed ? liveDomTokens() : 0;
+  // Every real usage sample says how this turn's text maps to tokens; use that
+  // ratio instead of a fixed guess, so the count matches the provider's own
+  // tokenizer on Chinese, code, and prose alike.
+  if (exact > 0 && domTokens > 0) {
+    var ratio = exact / domTokens;
+    if (ratio > 0.4 && ratio < 2.5) calibration.current = calibration.current * 0.7 + ratio * 0.3;
+  }
+  var tokens = Math.max(exact, estimate, Math.round(domTokens * calibration.current));
 
   useEffect(
     function () {
       if (!running || !cfg.liveSpeed) return;
       var count = Math.round(tokens);
       if (count <= 0) return;
-      var lastCount = lastTokenCount.current;
-      if (lastCount === 0) {
-        lastTokenCount.current = count;
-        lastTokenAt.current = now;
-        lastTokenSeenAt.current = now;
-        return;
-      }
-      if (count < lastCount) {
-        lastTokenCount.current = count;
-        lastTokenAt.current = now;
-        lastTokenSeenAt.current = now;
+      var nowMs = now;
+      // A short rolling window over the real deltas: it follows the stream the
+      // way it actually arrives instead of settling into a steady average.
+      var samples = samplesRef.current;
+      if (lastTokenCount.current !== 0 && count < lastTokenCount.current) {
+        samples.length = 0;
         lastSpeed.current = 0;
         setDisplay(0);
-        return;
       }
-      if (count > lastCount) {
-        var delta = count - lastCount;
-        var gap = lastTokenAt.current > 0 ? now - lastTokenAt.current : 100;
-        // Time spent waiting for tools / the next chunk is not decode time.
-        // Cap one gap so a late burst is not diluted by the whole pause.
-        var activeGap = Math.max(40, Math.min(gap, 800));
-        var instant = delta / (activeGap / 1000);
-        var next = lastSpeed.current > 0 ? lastSpeed.current * 0.55 + instant * 0.45 : instant;
+      lastTokenCount.current = count;
+      samples.push({ at: nowMs, count: count });
+      while (samples.length > 1 && nowMs - samples[0].at > 1200) samples.shift();
+      var first = samples[0];
+      var span = nowMs - first.at;
+      if (span > 0) lastTokenSeenAt.current = nowMs;
+      if (span >= 250 && count > first.count) {
+        var next = (count - first.count) / (span / 1000);
         lastSpeed.current = next;
-        lastTokenCount.current = count;
-        lastTokenAt.current = now;
-        lastTokenSeenAt.current = now;
         setDisplay(next);
-        return;
       }
-      if (lastTokenSeenAt.current > 0 && now - lastTokenSeenAt.current > 800) {
+      if (lastTokenSeenAt.current > 0 && nowMs - lastTokenSeenAt.current > 900) {
         lastSpeed.current = 0;
         setDisplay(0);
       }
@@ -1666,15 +1697,28 @@ function LiveSpeedBody(props) {
   useEffect(
     function () {
       if (!running) {
+        // Keep the value that belongs to the turn: coming back to this session
+        // has to show the same total, not a fresh one.
+        if (turnKeyRef.current !== "") liveTurnTotals.set(turnKeyRef.current, totalRef.current);
+        startedAt.current = 0;
         totalRef.current = 0;
         setTotalTokens(0);
         return;
       }
       var reported = Math.round(usageTotal || 0);
-      var candidate = reported > 0 ? reported : Math.min(Math.round(tokens), 10000000);
+      // Never show less than the text already produced: the provider figure can
+      // trail the stream, and the two readings have to agree with each other.
+      var candidate = Math.max(reported, Math.min(Math.round(tokens), 10000000));
       var next = Math.max(totalRef.current, candidate);
       if (next !== totalRef.current) {
         totalRef.current = next;
+        if (turnKeyRef.current !== "") {
+          liveTurnTotals.set(turnKeyRef.current, next);
+          if (liveTurnTotals.size > 200) {
+            var oldestTotal = liveTurnTotals.keys().next().value;
+            if (oldestTotal !== undefined) liveTurnTotals.delete(oldestTotal);
+          }
+        }
         setTotalTokens(next);
       }
     },
@@ -1907,16 +1951,16 @@ function TurnReportBody(props) {
   if (report && report.durationMs !== null) {
     timing.push({ key: "total", text: t("report.total", { value: shared.formatSeconds(report.durationMs) }) });
   }
-  // Speed is measured when the turn carries decode timings; otherwise it is
-  // derived from the output tokens and the time the answer took, so the field
-  // does not silently disappear.
-  // Prefer a measured decode speed; only fall back to wall-clock time when the
-  // turn carries no decode timings at all and the live reading is gone.
+  // Speed is measured when the turn carries decode timings; otherwise it comes
+  // from the time the answer actually spent working — a step's own span, or the
+  // turn minus its tool calls — and only as a last resort from the whole span.
   var measuredTps =
     report && report.tps !== null ? report.tps : report && report.sampledTps !== null ? report.sampledTps : null;
+  var busyTps = report && report.approxTps !== null ? report.approxTps : null;
   var derivedTps = null;
   if (
     measuredTps === null &&
+    busyTps === null &&
     liveTps === null &&
     outputValue !== null &&
     outputValue > 0 &&
@@ -1928,7 +1972,8 @@ function TurnReportBody(props) {
       report.ttftMs !== null && report.ttftMs < report.durationMs ? report.durationMs - report.ttftMs : report.durationMs;
     if (decodeSpan > 0) derivedTps = outputValue / (decodeSpan / 1000);
   }
-  var speedTps = measuredTps !== null ? measuredTps : liveTps !== null ? liveTps : derivedTps;
+  var speedTps =
+    measuredTps !== null ? measuredTps : busyTps !== null ? busyTps : liveTps !== null ? liveTps : derivedTps;
   if (speedTps !== null && speedTps > 0) {
     var speedText =
       measuredTps !== null

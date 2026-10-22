@@ -60,6 +60,9 @@ equal("estimate ascii", shared.estimateTokensFromBlocks([{ kind: "text", text: "
 equal("estimate cjk", shared.estimateTokensFromBlocks([{ kind: "text", text: "你好世界" }]), 4);
 equal("estimate ignores tools", shared.estimateTokensFromBlocks([{ kind: "tool-call", text: "ignored" }]), 0);
 equal("count chars", shared.countChars([{ kind: "reasoning", text: "abc" }, { kind: "text", text: "de" }]), 5);
+equal("estimate plain text", shared.estimateTokensFromText("hello world"), 3);
+equal("estimate plain cjk", shared.estimateTokensFromText("你好世界"), 4);
+equal("estimate empty text", shared.estimateTokensFromText(""), 0);
 
 // -- turn report ------------------------------------------------------------
 
@@ -102,6 +105,30 @@ equal("report sampled speed matches full timing", Math.round(report.sampledTps),
   const partialReport = shared.readTurnReport(partial, 4);
   equal("report partial timing has no full speed", partialReport.tps, null);
   equal("report partial timing still has a decode speed", Math.round(partialReport.sampledTps), 90);
+}
+{
+  // No first-token times at all, but each step knows its own span: the speed has
+  // to come from the steps, not from the wall clock that includes tool waits.
+  const stepped = [
+    { kind: "assistant", turn: 5, timing: { stepStartTime: 0, completedTime: 100000 }, usage: { outputTokens: 300 } },
+    { kind: "tool-result", turn: 5, callTime: 100000, time: 300000 },
+    { kind: "assistant", turn: 5, timing: { stepStartTime: 300000, completedTime: 400000 }, usage: { outputTokens: 300 } },
+  ];
+  const steppedReport = shared.readTurnReport(stepped, 5);
+  equal("report busy span subtracts tool waits", Math.round(steppedReport.busyMs), 200000);
+  equal("report busy speed is not wall speed", Math.round(steppedReport.approxTps), 3);
+  equal("report busy speed beats the whole turn", Math.round(400000 / 1000) > 0, true);
+}
+{
+  // Only the turn's ends are known, plus the tool calls inside it.
+  const spans = [
+    { kind: "assistant", turn: 6, timing: { stepStartTime: 0 }, usage: { outputTokens: 200 } },
+    { kind: "tool-result", turn: 6, callTime: 1000, time: 91000 },
+    { kind: "assistant", turn: 6, timing: { completedTime: 101000 }, usage: { outputTokens: 200 } },
+  ];
+  const spansReport = shared.readTurnReport(spans, 6);
+  equal("report without step spans uses the tool-free time", Math.round(spansReport.busyMs), 11000);
+  equal("report without step spans still has a speed", Math.round(spansReport.approxTps), 36);
 }
 equal("report finds last node", shared.findAssistantNode(nodes, 2).usage.outputTokens, 10);
 equal("report handles no usage", shared.readTurnReport([
@@ -232,7 +259,7 @@ const [sharedSource, clientSource, hostSource] = await Promise.all([
 check("passed level dots are hidden", clientSource.includes('tick <= safe ? "none"'));
 check("particles cover the rail height", clientSource.includes("--y") && /\(8 \+ Math\.random\(\) \* 84\)/.test(clientSource));
 check("hud total uses compact units", clientSource.includes("shared.formatTokens(shownTotal)"));
-check("hud speed survives a lagging usage sample", clientSource.includes("Math.max(exact, estimate)"));
+check("hud speed survives a lagging usage sample", clientSource.includes("Math.max(exact, estimate, Math.round(domTokens * calibration.current))"));
 check("css fades the panel out", shared.CSS.includes(".dtk-effort-panel--closing"));
 check("panel fade is not instant", /\.dtk-effort-content\{[^}]*transition:opacity \.3[0-9]?s/.test(shared.CSS));
 check("closing panels are discarded, not dropped", clientSource.includes("discardEffortPanel") && clientSource.includes("closeEffortPanel(menu)"));
