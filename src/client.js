@@ -71,7 +71,7 @@ var zh = {
   "settings.notify": "完成通知",
   "settings.notifyDesc": "每一轮结束时发系统通知并闪烁标题，页面在前台也会提醒。",
   "settings.sound": "通知提示音",
-  "settings.soundDesc": "完成时播放一声轻提示音；默认关闭。",
+  "settings.soundDesc": "每一轮结束播放一声轻提示音，与系统通知互不影响；默认关闭。",
   "settings.min": "最短通知时长",
   "settings.minDesc": "短于这个秒数的回答不通知，避免刷屏。",
   "settings.permission": "系统通知权限",
@@ -83,6 +83,13 @@ var zh = {
   "settings.notify.watching": "正在监听 {total} 个会话 · 当前页面{page}",
   "settings.notify.pageRunning": "正在运行",
   "settings.notify.pageIdle": "空闲",
+  "settings.effortFeature": "思考强度滑块",
+  "settings.liveFeature": "实时读数",
+  "settings.reportFeature": "每条回答成绩单",
+  "settings.notifyFeature": "完成通知",
+  "settings.notifySummary": "通知 {notify} · 提示音 {sound}",
+  "settings.on": "开启",
+  "settings.off": "关闭",
   "settings.permission.unsupported": "当前浏览器不支持",
   "settings.saved": "设置保存在当前 profile。",
   "settings.unavailable": "设置服务未就绪，当前改动只在本次页面生效。",
@@ -122,7 +129,7 @@ var en = {
   "settings.notify": "Completion notification",
   "settings.notifyDesc": "Notify and flash the title when a turn finishes, even while the page is in front.",
   "settings.sound": "Notification sound",
-  "settings.soundDesc": "A soft two-tone chime on completion; off by default.",
+  "settings.soundDesc": "A soft two-tone chime when a turn ends, independent of the system notification; off by default.",
   "settings.min": "Minimum notification length",
   "settings.minDesc": "Replies shorter than this many seconds stay silent.",
   "settings.permission": "System notification permission",
@@ -134,6 +141,13 @@ var en = {
   "settings.notify.watching": "Watching {total} sessions · this page is {page}",
   "settings.notify.pageRunning": "running",
   "settings.notify.pageIdle": "idle",
+  "settings.effortFeature": "Effort slider",
+  "settings.liveFeature": "Live reading",
+  "settings.reportFeature": "Per-answer report",
+  "settings.notifyFeature": "Completion notification",
+  "settings.notifySummary": "notice {notify} · chime {sound}",
+  "settings.on": "On",
+  "settings.off": "Off",
   "settings.permission.unsupported": "Not supported by this browser",
   "settings.saved": "Settings are saved in the current profile.",
   "settings.unavailable": "The settings service is not ready; changes apply to this page only.",
@@ -464,12 +478,15 @@ function playChime() {
 }
 
 function notifyCompletion(ctx, t, row, elapsedMs) {
+  var cfg = getConfig();
   var title = row && typeof row.title === "string" && row.title.trim() !== "" ? row.title : t("notify.generic");
   var body = t("notify.body", {
     title: title,
     duration: shared.formatSeconds(elapsedMs) || "0s",
   });
-  if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+  // The notice and the chime are separate switches: a machine in do-not-disturb
+  // swallows the notification, and the chime is the only signal left.
+  if (cfg.completionNotify && typeof Notification !== "undefined" && Notification.permission === "granted") {
     try {
       var notice = new Notification(t("notify.title"), {
         body: body,
@@ -496,8 +513,8 @@ function notifyCompletion(ctx, t, row, elapsedMs) {
       // Construction can fail in strict browser modes; the title flash remains.
     }
   }
-  flashTitle(t("notify.title"));
-  if (getConfig().notifySound) playChime();
+  if (cfg.completionNotify) flashTitle(t("notify.title"));
+  if (cfg.notifySound) playChime();
 }
 
 // ---------------------------------------------------------------------------
@@ -2184,7 +2201,9 @@ function NotificationHost(props) {
 
   useEffect(
     function () {
-      if (!cfg.completionNotify) return undefined;
+      // Either half alone is enough to watch: the notification can be silenced
+      // by the system while the chime still reaches headphones.
+      if (!cfg.completionNotify && !cfg.notifySound) return undefined;
       // The session list keeps its own `running` bookkeeping, and a list that
       // never flips it leaves the watcher blind. The running row in the chat is
       // the state the user actually sees, so the run is timed from that.
@@ -2297,35 +2316,6 @@ function permissionText(t, permission) {
   return t("settings.permission.default");
 }
 
-function Toggle(props) {
-  return h("button", {
-    type: "button",
-    role: "switch",
-    "aria-checked": props.checked === true,
-    "aria-label": props.label,
-    disabled: props.disabled === true,
-    className: "dtk-switch",
-    onClick: function () {
-      if (props.disabled === true) return;
-      props.onChange(props.checked !== true);
-    },
-  });
-}
-
-function CardRow(props) {
-  return h(
-    "div",
-    { className: "dtk-row" },
-    h(
-      "div",
-      { className: "dtk-row-copy" },
-      h("div", { className: "dtk-row-label" }, props.label),
-      props.description ? h("div", { className: "dtk-row-desc" }, props.description) : null
-    ),
-    h("div", { className: "dtk-row-control" }, props.children)
-  );
-}
-
 function SettingsCard(props) {
   var cfg = useConfig();
   var ready = useScopeReady();
@@ -2335,6 +2325,23 @@ function SettingsCard(props) {
   var permission = permissionStore[0];
   var setPermission = permissionStore[1];
   var counts = useSessionCounts();
+  var openState = useState(props && (props.defaultOpen === true || props.view === "page"));
+  var open = openState[0];
+  var setOpen = openState[1];
+  // Each feature opens on its own, so the options that belong to it sit together
+  // and more of them can be added later without touching the others.
+  var sectionsState = useState({});
+  var opened = sectionsState[0];
+  var setOpened = sectionsState[1];
+
+  function toggleSection(id) {
+    setOpened(function (previous) {
+      var next = {};
+      for (var key in previous) next[key] = previous[key];
+      next[id] = !previous[id];
+      return next;
+    });
+  }
 
   function requestPermission() {
     if (typeof Notification === "undefined" || typeof Notification.requestPermission !== "function") return;
@@ -2352,69 +2359,191 @@ function SettingsCard(props) {
     }
   }
 
-  function toggle(field, label, description, disabled) {
+  // The boolean rows are joined segments (开启/关闭), the same control shape the
+  // other two cards use; a switch here would be the odd one out.
+  function seg(fieldName) {
+    var on = cfg[fieldName] === true;
     return h(
-      CardRow,
-      { key: field, label: label, description: description },
-      h(Toggle, {
-        checked: cfg[field] === true,
-        label: label,
-        disabled: disabled === true,
-        onChange: function (value) {
-          write(field, value);
+      "div",
+      { className: "dtk-seg" },
+      h(
+        "button",
+        {
+          type: "button",
+          className: "dtk-segBtn" + (on ? " dtk-segOn" : ""),
+          "aria-pressed": on,
+          onClick: function () {
+            write(fieldName, true);
+          },
         },
+        t("settings.on")
+      ),
+      h(
+        "button",
+        {
+          type: "button",
+          className: "dtk-segBtn" + (on ? "" : " dtk-segOn"),
+          "aria-pressed": !on,
+          onClick: function () {
+            write(fieldName, false);
+          },
+        },
+        t("settings.off")
+      )
+    );
+  }
+
+  function field(label, hint, control) {
+    return h(
+      "div",
+      { className: "dtk-field", key: label },
+      h(
+        "div",
+        { className: "dtk-fieldHead" },
+        h("span", { className: "dtk-fieldLabel" }, label),
+        h("div", { className: "dtk-inline" }, control)
+      ),
+      hint === null || hint === undefined ? null : h("p", { className: "dtk-hint" }, hint)
+    );
+  }
+
+  function stateWord(on) {
+    return on ? t("settings.on") : t("settings.off");
+  }
+
+  var sections = [
+    {
+      id: "effort",
+      title: t("settings.effortFeature"),
+      summary: stateWord(cfg.effortShift === true),
+      fields: [field(t("settings.effort"), t("settings.effortDesc"), seg("effortShift"))],
+    },
+    {
+      id: "live",
+      title: t("settings.liveFeature"),
+      summary: stateWord(cfg.liveSpeed === true),
+      fields: [field(t("settings.live"), t("settings.liveDesc"), seg("liveSpeed"))],
+    },
+    {
+      id: "report",
+      title: t("settings.reportFeature"),
+      summary: stateWord(cfg.turnReport === true),
+      fields: [field(t("settings.report"), t("settings.reportDesc"), seg("turnReport"))],
+    },
+    {
+      id: "notify",
+      title: t("settings.notifyFeature"),
+      summary: t("settings.notifySummary", {
+        notify: stateWord(cfg.completionNotify === true),
+        sound: stateWord(cfg.notifySound === true),
+      }),
+      fields: [
+        field(t("settings.notify"), t("settings.notifyDesc"), seg("completionNotify")),
+        field(t("settings.sound"), t("settings.soundDesc"), seg("notifySound")),
+        field(
+          t("settings.permission"),
+          permissionText(t, permission) +
+            " · " +
+            t("settings.notify.watching", {
+              total: String(counts.total),
+              page: counts.pageRunning ? t("settings.notify.pageRunning") : t("settings.notify.pageIdle"),
+            }),
+          h(
+            "button",
+            {
+              type: "button",
+              className: "dtk-fieldAction",
+              disabled: permission !== "default",
+              onClick: requestPermission,
+            },
+            t("settings.permission.request")
+          )
+        ),
+      ],
+    },
+  ];
+
+  function chevron(up) {
+    return h(
+      "svg",
+      {
+        className: "dtk-chevron" + (up ? " dtk-chevronOpen" : ""),
+        width: 14,
+        height: 14,
+        viewBox: "0 0 16 16",
+        fill: "none",
+        "aria-hidden": "true",
+      },
+      h("path", {
+        d: "M4 6.5 8 10.5 12 6.5",
+        stroke: "currentColor",
+        strokeWidth: 1.6,
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
       })
     );
   }
 
   return h(
     "div",
-    { className: "dtk-card" },
+    { className: "dtk-card" + (open ? " dtk-cardOpen" : ""), "data-goodies-card": "" },
     h(
-      "div",
-      { className: "dtk-card-head" },
-      h("div", { className: "dtk-card-title" }, t("settings.title")),
-      h("div", { className: "dtk-card-sub" }, t("settings.subtitle"))
+      "button",
+      {
+        type: "button",
+        className: "dtk-header",
+        "aria-expanded": open,
+        onClick: function () {
+          setOpen(!open);
+        },
+      },
+      h(
+        "span",
+        { className: "dtk-headText" },
+        h("span", { className: "dtk-name" }, t("settings.title")),
+        h("span", { className: "dtk-description" }, t("settings.subtitle"))
+      ),
+      chevron(open)
     ),
-    h("p", { className: "dtk-card-intro" }, t("settings.intro")),
-    toggle("effortShift", t("settings.effort"), t("settings.effortDesc")),
-    toggle("liveSpeed", t("settings.live"), t("settings.liveDesc")),
-    toggle("turnReport", t("settings.report"), t("settings.reportDesc")),
-    toggle("completionNotify", t("settings.notify"), t("settings.notifyDesc")),
-    cfg.completionNotify ? toggle("notifySound", t("settings.sound"), t("settings.soundDesc")) : null,
-    cfg.completionNotify
-      ? h(
-          CardRow,
-          {
-            label: t("settings.permission"),
-            description: permissionText(t, permission) + " · " + t("settings.permission.hint"),
-          },
-          h(
-            "button",
-            {
-              type: "button",
-              className: "dtk-link",
-              disabled: permission !== "default",
-              onClick: requestPermission,
-            },
-            t("settings.permission.request")
-          )
-        )
-      : null,
-    cfg.completionNotify
+    open
       ? h(
           "div",
-          { className: "dtk-perm-text", "data-goodies-notify-state": "" },
-          t("settings.notify.watching", {
-            total: String(counts.total),
-            page: counts.pageRunning ? t("settings.notify.pageRunning") : t("settings.notify.pageIdle"),
-          })
+          { className: "dtk-body" },
+          sections.map(function (section, index) {
+            var isOpen = opened[section.id] === true;
+            var last = index === sections.length - 1;
+            return h(
+              "div",
+              { className: "dtk-section" + (last ? " dtk-sectionLast" : ""), key: section.id },
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: "dtk-sectionHead",
+                  "aria-expanded": isOpen,
+                  "data-goodies-section": section.id,
+                  onClick: function () {
+                    toggleSection(section.id);
+                  },
+                },
+                h("span", { className: "dtk-sectionTitle" }, section.title),
+                isOpen
+                  ? h("span", { className: "dtk-sectionSpacer" })
+                  : h("span", { className: "dtk-sectionSummary" }, section.summary),
+                chevron(isOpen)
+              ),
+              isOpen ? h("div", { className: "dtk-sectionBody" }, section.fields) : null
+            );
+          }),
+          h(
+            "div",
+            { className: "dtk-footer" },
+            h("span", { className: "dtk-hint" }, ready ? t("settings.saved") : t("settings.unavailable"))
+          )
         )
-      : null,
-    h("div", { className: "dtk-card-foot" }, ready ? t("settings.saved") : t("settings.unavailable"))
+      : null
   );
 }
-
 // ---------------------------------------------------------------------------
 // Plugin body
 // ---------------------------------------------------------------------------

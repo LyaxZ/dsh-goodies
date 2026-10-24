@@ -132,6 +132,21 @@ async function main() {
   }))()`);
   console.log(JSON.stringify(opened, null, 2));
 
+  // Another plugin's floating panel may sit over the settings navigation; close
+  // it first, or the click lands on the panel instead of the menu.
+  const closed = await evaluate(`(() => {
+    const panel = document.querySelector(".dfp-panel");
+    if (!panel) return false;
+    const close = panel.querySelector("button[aria-label], .dfp-panelClose, button");
+    const box = (close || panel).getBoundingClientRect();
+    return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+  })()`);
+  if (closed) {
+    await cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x: closed.x, y: closed.y, button: "left", clickCount: 1 });
+    await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: closed.x, y: closed.y, button: "left", clickCount: 1 });
+    await sleep(600);
+  }
+
   // Click the Plugins entry by visible text.
   const rect = await evaluate(`(() => {
     const candidates = Array.from(document.querySelectorAll("button, [role=tab], [role=menuitem], a"));
@@ -145,9 +160,33 @@ async function main() {
   })()`);
   console.log("plugins entry:", JSON.stringify(rect));
   if (rect) {
-    await cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x: rect.x, y: rect.y, button: "left", clickCount: 1 });
-    await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: rect.x, y: rect.y, button: "left", clickCount: 1 });
+    // A direct click: another plugin's floating panel can cover the point, and a
+    // synthetic pointer event would land on that panel instead.
+    await evaluate(`(() => {
+      const node = Array.from(document.querySelectorAll("button, [role=tab], [role=menuitem], a"))
+        .find((item) => item.innerText.trim() === "内置插件");
+      if (node) node.click();
+      return !!node;
+    })()`);
     await sleep(2500);
+  }
+
+  // rc.2 puts the plugin cards behind the "插件配置" tab of the plugins page.
+  const tab = await evaluate(`(() => {
+    const candidates = Array.from(document.querySelectorAll("button, [role=tab], [role=menuitem]"));
+    const target = candidates.find((node) => {
+      const text = node.innerText.trim();
+      return text === "插件配置" || text === "Plugin configuration" || text === "Config";
+    });
+    if (!target) return null;
+    const box = target.getBoundingClientRect();
+    return { x: box.left + box.width / 2, y: box.top + box.height / 2, text: target.innerText.trim() };
+  })()`);
+  console.log("config tab:", JSON.stringify(tab));
+  if (tab) {
+    await cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x: tab.x, y: tab.y, button: "left", clickCount: 1 });
+    await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: tab.x, y: tab.y, button: "left", clickCount: 1 });
+    await sleep(2000);
   }
 
   const list = await evaluate(`(() => ({
@@ -167,11 +206,43 @@ async function main() {
     await sleep(2500);
   }
 
+  // Third-party cards live under the global-plugins group at the bottom.
+  await evaluate(`(() => {
+    const head = Array.from(document.querySelectorAll("button, [role=button], div"))
+      .find((node) => node.innerText && node.innerText.trim().startsWith("全局插件"));
+    if (head) head.click();
+    return !!head;
+  })()`);
+  await sleep(1500);
+
+  // The installed (third-party) group sits below the built-in list.
+  await evaluate(`(() => {
+    const dialog = document.querySelector('[role="dialog"]');
+    const scrollers = Array.from(document.querySelectorAll('div')).filter((node) => node.scrollHeight > node.clientHeight + 40);
+    scrollers.forEach((node) => { node.scrollTop = node.scrollHeight; });
+    if (dialog) dialog.scrollTop = dialog.scrollHeight;
+    return scrollers.length;
+  })()`);
+  await sleep(1200);
+
+  // The plugins page has a search box; filter it to this package so its card is
+  // on screen without hunting through the groups.
+  await evaluate(`(() => {
+    const input = Array.from(document.querySelectorAll("input")).find((node) => (node.placeholder || "").includes("搜索"));
+    if (!input) return false;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+    setter.call(input, "Goodies");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    return true;
+  })()`);
+  await sleep(1500);
+
   const page = await evaluate(`(() => ({
     body: document.body.innerText.slice(0, 1600),
     toolkit: document.body.innerText.includes("DSH Goodies"),
-    switches: document.querySelectorAll(".dtk-switch").length,
-    cards: document.querySelectorAll(".dtk-card").length
+    switches: document.querySelectorAll(".dtk-seg").length,
+    cards: document.querySelectorAll(".dtk-card").length,
+    cardText: (document.querySelector("[data-goodies-card]") || {}).innerText || ""
   }))()`);
   console.log(JSON.stringify(page, null, 2));
 

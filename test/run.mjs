@@ -252,7 +252,7 @@ equal("no overrides keeps the document", JSON.stringify(shared.mergeOverrides({ 
 
 // -- style contract ---------------------------------------------------------
 
-for (const selector of ["data-dtk-effort-menu", ".dtk-effort-fill", ".dtk-effort-thumb", ".dtk-effort-spark", ".dtk-live", ".dtk-live-star", ".dtk-report", ".dtk-card", ".dtk-switch"]) {
+for (const selector of ["data-dtk-effort-menu", ".dtk-effort-fill", ".dtk-effort-thumb", ".dtk-effort-spark", ".dtk-live", ".dtk-live-star", ".dtk-report", ".dtk-card", ".dtk-seg"]) {
   check(`css has ${selector}`, shared.CSS.includes(selector));
 }
 check("css respects reduced motion", shared.CSS.includes("prefers-reduced-motion"));
@@ -274,13 +274,26 @@ check("css fades the panel out", shared.CSS.includes(".dtk-effort-panel--closing
 check("panel fade is not instant", /\.dtk-effort-content\{[^}]*transition:opacity \.3[0-9]?s/.test(shared.CSS));
 check("closing panels are discarded, not dropped", clientSource.includes("discardEffortPanel") && clientSource.includes("closeEffortPanel(menu)"));
 check("the panel offers a way back", clientSource.includes("dtk-effort-back") && shared.CSS.includes(".dtk-effort-back"));
+// The notice and the chime are separate switches: a machine in do-not-disturb
+// silences the notification, and the chime has to keep working on its own.
+for (const [label, needle] of [
+  ["the watcher runs on either switch", "!cfg.completionNotify && !cfg.notifySound"],
+  ["the notice is gated by its own switch", 'if (cfg.completionNotify && typeof Notification'],
+  ["the chime is gated by its own switch", "if (cfg.notifySound) playChime();"],
+]) {
+  check(label, clientSource.includes(needle));
+}
+// Each feature is a collapsible section so its options can grow in place.
+for (const id of ["effort", "live", "report", "notify"]) {
+  check(`the card has a section for ${id}`, clientSource.includes(`id: "${id}"`));
+}
 // Every selector the HUD asks for has to exist: a missing one throws during
 // render and the whole reading disappears.
 for (const selector of ["liveKey", "liveChars", "liveEstimate", "liveExact", "liveUsageTotal"]) {
   check(`selector ${selector} is defined`, clientSource.includes(`function ${selector}(`) || clientSource.includes(`function ${selector}(snapshot)`));
 }
 check("the report only shows a measured speed", clientSource.includes("enoughToJudge") && !clientSource.includes("derivedTps"));
-check("the settings card exposes the notification", clientSource.includes('toggle("completionNotify"'));
+check("the settings card exposes the notification", clientSource.includes('seg("completionNotify")'));
 check("the notification watcher is mounted", clientSource.includes("h(NotificationHost") && clientSource.includes("notify(null, t, sessionRow(sessions), elapsed)"));
 check("the notification asks for permission", clientSource.includes("settings.permission.request") && clientSource.includes("permissionText(t, permission)"));
 check("a finished turn is announced even in front", !shared.shouldNotify.toString().includes("hidden"));

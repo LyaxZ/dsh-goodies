@@ -77,7 +77,7 @@ export const Config = volatileWhenSupported(
       notifySound: z
         .boolean()
         .default(false)
-        .description("Play a soft chime with a completion notification"),
+        .description("Play a soft chime when a turn finishes, with or without the system notification"),
       notifyMinSeconds: z
         .number()
         .min(0)
