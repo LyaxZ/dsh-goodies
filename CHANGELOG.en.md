@@ -2,6 +2,18 @@
 
 Notable changes to **dsh-goodies** land here. Each entry is compared against the previous release only; internal iteration stays out. The Chinese edition lives in [CHANGELOG.md](CHANGELOG.md).
 
+## [0.1.5] - 2026-10-24
+
+### Changed
+
+- **The live reading follows the output**: speed and the turn count rise with the generation itself, hold still during a tool call, and carry on afterwards.
+- **The count covers this turn's generated content only**: prose, reasoning and tool-call arguments count; prompt and cache do not. It starts over with each turn.
+- **The effort panel follows the dark theme**: on a dark surface the strongest setting is the lightest tone, and the rail runs the same way.
+
+### Fixed
+
+- **A new message no longer opens on the previous turn's count**: the reading stays at zero until the reply begins.
+- **The count keeps growing after a tool call**: a multi-step answer no longer stalls or restarts.
 ## [0.1.4] - 2026-10-22
 
 ### Added

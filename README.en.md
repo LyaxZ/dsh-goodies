@@ -7,7 +7,7 @@ A small set of conveniences for the DeepSeek Harness (DSH) Web GUI: an effort sl
 ## Features
 
 - **Effort slider**: the reasoning-level pane becomes a wide rail with a white thumb; drag or tap to switch, the current level name sits above it, and the model's real default is marked. Level names are always the model's own, with no invented Off. The track carries a particle stream that grows and speeds up with the level, running from light blue to deep blue.
-- **Live tokens/second**: `★ speed · turn total` on the right of the running-status row. The speed counts only time that actually produced tokens, so tool waits are excluded; the total matches the turn usage panel and is abbreviated with K / M / B above a thousand.
+- **Live tokens/second**: `★ speed · turn total` on the right of the running-status row, read straight from the model stream. The speed counts only time that actually produced tokens, so tool waits are excluded; the total covers this turn's generated content — prose, reasoning and tool-call arguments — without the prompt or the cache, abbreviated with K / M / B above a thousand.
 - **Per-answer report**: input · output · cached next to the usage pill, total time and output speed next to the answer's time. Missing pieces read `—` instead of disappearing; a turn with very few output tokens shows no speed at all rather than counting connection time as generation.
 - **Completion notification**: a system notification when a turn finishes — the session title and how long it took — and clicking it returns to that session. It also fires while the page is in front, falls back to flashing the title without permission, and can play a soft chime.
 - **Settings card**: in Settings → Plugins → DSH Goodies, with one switch per feature plus the notification sound and permission rows.
@@ -16,7 +16,7 @@ A small set of conveniences for the DeepSeek Harness (DSH) Web GUI: an effort sl
 
 | Plugin version | Supported DSH versions |
 | --- | --- |
-| **0.1.x** (latest, 0.1.4) | 0.2.1-rc.1, 0.2.1-rc.2 |
+| **0.1.x** (latest, 0.1.5) | 0.2.1-rc.1, 0.2.1-rc.2 |
 
 ## Install
 
