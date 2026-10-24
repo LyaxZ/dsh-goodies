@@ -109,10 +109,30 @@ async function main() {
   };
 
   await ev(`(() => {
-    const answer = document.createElement("div");
-    answer.setAttribute("data-chat-flow-kind", "assistant");
-    answer.id = "dtk-fake-answer";
-    document.body.appendChild(answer);
+    // The reading comes from the host channel now, so the probe serves it: the
+    // count grows with the simulated text, the way a real stream would.
+    window.__dtkTestTurn = "probe:1";
+    const started = Date.now();
+    const realFetch = window.fetch;
+    window.fetch = function (input, init) {
+      const url = typeof input === "string" ? input : input && input.url;
+      if (typeof url === "string" && url.indexOf("/dsh-goodies/live") !== -1) {
+        const node = document.getElementById("dtk-fake-answer");
+        const chars = node ? node.textContent.length : 0;
+        const entry = {
+          streamId: 1,
+          chars: chars,
+          estimated: Math.round(chars / 4),
+          usage: 0,
+          exact: false,
+          active: true,
+          startedAt: started,
+        };
+        const sessions = new Proxy({}, { get: () => entry });
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ at: Date.now(), sessions: sessions }) });
+      }
+      return realFetch.apply(window, arguments);
+    };
     const row = document.createElement("div");
     row.setAttribute("data-chat-running", "");
     const inner = document.createElement("div");
@@ -120,6 +140,13 @@ async function main() {
     inner.textContent = "深度求索中";
     row.appendChild(inner);
     document.body.appendChild(row);
+    // The answer appears only once the reply starts, the way the app adds it.
+    setTimeout(() => {
+      const answer = document.createElement("div");
+      answer.setAttribute("data-chat-flow-kind", "assistant");
+      answer.id = "dtk-fake-answer";
+      document.body.appendChild(answer);
+    }, 120);
     return true;
   })()`);
   await sleep(700);

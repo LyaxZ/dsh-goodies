@@ -269,11 +269,16 @@ const [sharedSource, clientSource, hostSource] = await Promise.all([
 check("passed level dots are hidden", clientSource.includes('tick <= safe ? "none"'));
 check("particles cover the rail height", clientSource.includes("--y") && /\(8 \+ Math\.random\(\) \* 84\)/.test(clientSource));
 check("hud total uses compact units", clientSource.includes("shared.formatTokens(shownTotal)"));
-check("hud speed survives a lagging usage sample", clientSource.includes("Math.max(exact, estimate, Math.round(domTokens * calibration.current))"));
+check("hud speed survives a lagging usage sample", clientSource.includes("remote.ok === false ? estimate : remote.tokens"));
 check("css fades the panel out", shared.CSS.includes(".dtk-effort-panel--closing"));
 check("panel fade is not instant", /\.dtk-effort-content\{[^}]*transition:opacity \.3[0-9]?s/.test(shared.CSS));
 check("closing panels are discarded, not dropped", clientSource.includes("discardEffortPanel") && clientSource.includes("closeEffortPanel(menu)"));
 check("the panel offers a way back", clientSource.includes("dtk-effort-back") && shared.CSS.includes(".dtk-effort-back"));
+// Every selector the HUD asks for has to exist: a missing one throws during
+// render and the whole reading disappears.
+for (const selector of ["liveKey", "liveChars", "liveEstimate", "liveExact", "liveUsageTotal"]) {
+  check(`selector ${selector} is defined`, clientSource.includes(`function ${selector}(`) || clientSource.includes(`function ${selector}(snapshot)`));
+}
 check("the report only shows a measured speed", clientSource.includes("enoughToJudge") && !clientSource.includes("derivedTps"));
 check("the settings card exposes the notification", clientSource.includes('toggle("completionNotify"'));
 check("the notification watcher is mounted", clientSource.includes("h(NotificationHost") && clientSource.includes("notify(null, t, sessionRow(sessions), elapsed)"));

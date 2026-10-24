@@ -144,6 +144,8 @@ async function main() {
   if (hud !== null) {
     check("hud shows speed and unit", /tok\/s/.test(hud.text), hud.text);
     check("hud shows token total", /tokens/.test(hud.text), hud.text);
+    const totalValues = await ev(`(() => [...document.querySelectorAll("[data-goodies-live-speed] .dtk-live-metric.is-total .dtk-live-value")].map((node) => node.textContent))()`);
+    check("the total is printed once", totalValues.length === 1, totalValues);
     check("hud total uses a compact number", /^(\d+(\.\d)?[KMB]?|\d+)$/.test(String(hud.totalText)), hud.totalText);
     check("hud has no stray symbols", !/[≈Σ]/.test(hud.text), hud.text);
     check("tooltip is coherent", /tok\/s/.test(hud.title ?? "") && /tokens/.test(hud.title ?? ""), hud.title);
