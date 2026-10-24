@@ -2,6 +2,12 @@
 
 Notable changes to **dsh-goodies** land here. Each entry is compared against the previous release only; internal iteration stays out. The Chinese edition lives in [CHANGELOG.md](CHANGELOG.md).
 
+## [0.1.6] - 2026-10-24
+
+### Changed
+
+- **The settings card is split by feature**: each of the four can be expanded on its own, and the notification switches and permission sit together in the completion-notification section, leaving room for further options.
+- **The chime no longer depends on the system notification**: the two switches are independent, so a silenced notification still leaves the chime audible.
 ## [0.1.5] - 2026-10-24
 
 ### Changed
