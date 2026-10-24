@@ -7,17 +7,24 @@ Requirements checked before submitting:
 
 - `dsh.bundle` is declared in `package.json` (with `cordis.patch.yml` at the root).
 - The repo carries the `dsh-plugin` topic.
-- The repo is at least one day old — it was created on 2026-10-22, so the PR can
-  go in on 2026-10-23 or later.
+- The repo is at least one day old — created 2026-10-21T16:00Z, so the PR can go in
+  now.
 - The published npm package points its `repository` field back at this repo.
 - The description says only what the code does.
+
+## What the plugin actually installs
+
+Two halves. The browser half draws the slider, the live reading, the report and the
+settings card. The host half counts the model stream (one hook, read-only) and
+serves the reading on `/dsh-goodies/live`; it never changes a request, a session or
+a stored file.
 
 ## Pull request
 
 Title:
 
 ```
-Add dsh-goodies: an effort slider, a live speed reading and a per-answer report
+Add dsh-goodies: an effort slider, a live speed reading, a per-answer report and a completion notification
 ```
 
 Body:
@@ -30,14 +37,18 @@ Web GUI, each with its own switch in Settings → Plugins:
 
 - the model menu's reasoning-level pane becomes a wide slider with a white thumb;
   level names stay native, and the model's real default is marked;
-- the running-status row gains a live tokens/second reading (counting only time
-  that produced tokens) and the turn's total token count;
+- the running-status row gains a live tokens/second reading and the turn's
+  generated-token count, counted from the model stream itself so it rises with
+  the output and holds still during tool calls;
 - each answer's usage row gains input / output / cached, and its time row gains
-  total time and output speed.
+  total time and output speed;
+- a completion notification (and an independent chime) fires when a turn ends.
 
-Client half only, no host behaviour beyond the settings schema, MIT.
+It is interface-only: no request, session or workspace file is touched, and
+nothing leaves the machine. The one host hook counts stream chunks to produce the
+live reading.
 
-Repository: https://github.com/LyaxZ/dsh-goodies
+MIT. Repository: https://github.com/LyaxZ/dsh-goodies
 Package: https://www.npmjs.com/package/dsh-goodies
 ```
 
