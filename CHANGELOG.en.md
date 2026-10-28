@@ -2,6 +2,11 @@
 
 Notable changes to **dsh-goodies** land here. Each entry is compared against the previous release only; internal iteration stays out. The Chinese edition lives in [CHANGELOG.md](CHANGELOG.md).
 
+## [0.1.7] - 2026-10-28
+
+### Changed
+
+- **The declared range now covers 0.2.1-rc.3, 0.2.1-rc.4 and 0.2.2-alpha.2**: each pair behaves as declared, and 0.3 stays outside the supported range.
 ## [0.1.6] - 2026-10-24
 
 ### Changed
