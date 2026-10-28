@@ -2,6 +2,12 @@
 
 Notable changes to **dsh-goodies** land here. Each entry is compared against the previous release only; internal iteration stays out. The Chinese edition lives in [CHANGELOG.md](CHANGELOG.md).
 
+## [0.1.8] - 2026-10-28
+
+### Fixed
+
+- **The published package and the release asset carry the same bytes**: three text files in the previous version used different line endings inside the npm package; behaviour was unaffected, but the two downloads differed.
+
 ## [0.1.7] - 2026-10-28
 
 ### Changed
