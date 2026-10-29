@@ -189,7 +189,6 @@ var remoteSession = null;
 var activeSessionId = null;
 var liveTurnSpeeds = new Map();
 /** Per turn: the highest total shown so far, and when its clock started. */
-var liveTurnTotals = new Map();
 var liveTurnStart = new Map();
 
 function getConfig() {
@@ -1574,8 +1573,7 @@ function installEffortMenu(t) {
 // ---------------------------------------------------------------------------
 
 function liveKey(snapshot) {
-  var partial = snapshot && snapshot.legacy ? snapshot.legacy.partial : null;
-  return partial ? String(partial.turn) + ":" + String(partial.step) : "";
+  return shared.stepKey(snapshot);
 }
 
 function liveChars(snapshot) {
@@ -1623,6 +1621,24 @@ function rememberStreamDecode(turnKey, streamId, tokens, spanMs) {
   table.set(streamId, seen);
 }
 
+/** Tokens generated so far in one turn, from the same per-stream ledger. */
+/**
+ * Ledger key for a turn, from the turn:step key the HUD gates on.
+ *
+ * The gate key changes with every step, but the reading belongs to the whole
+ * answer: a tool call between two model calls must not restart the count.
+ * @returns {string} session-scoped turn key, or "" before the turn is known.
+ */
+function liveTurnTokens(turnKey) {
+  var table = liveTurnDecode.get(turnKey);
+  if (!table) return 0;
+  var tokens = 0;
+  table.forEach(function (entry) {
+    tokens += entry.tokens;
+  });
+  return tokens;
+}
+
 /** Generation speed of one finished turn, from the stream spans it produced. */
 function liveDecodeSpeed(turnKey) {
   var table = liveTurnDecode.get(turnKey);
@@ -1641,24 +1657,10 @@ function useRemoteLive(sessionId, turnKey, enabled) {
   var state = useState({ tokens: 0, startedAt: 0, ok: null });
   var live = state[0];
   var setLive = state[1];
-  // One host stream is one model call, and a turn is the sum of its calls.
-  // Keeping every stream's own maximum and adding them up is order-free: a
-  // transition can be missed without losing a step.
-  var perStream = useRef(new Map());
+  // The per-turn ledger lives at module scope: a remount (switching pages,
+  // opening settings) must show the same total, not start from zero.
   var turnRef = useRef(turnKey);
-  var ledgerTurn = useRef("");
   turnRef.current = turnKey;
-  useEffect(
-    function () {
-      // The key goes empty between two steps. Only a different, non-empty key
-      // is a new turn; clearing on the way back wiped the finished step.
-      if (turnKey === "" || ledgerTurn.current === turnKey) return;
-      ledgerTurn.current = turnKey;
-      perStream.current.clear();
-      setLive({ tokens: 0, startedAt: 0, ok: null });
-    },
-    [turnKey]
-  );
   useEffect(
     function () {
       if (!enabled || typeof fetch !== "function") return undefined;
@@ -1703,13 +1705,11 @@ function useRemoteLive(sessionId, turnKey, enabled) {
             var firstAt = Number(entry.firstAt) || 0;
             var lastAt = Number(entry.lastAt) || 0;
             var span = firstAt > 0 && lastAt > firstAt ? lastAt - firstAt : 0;
-            rememberStreamDecode(turnRef.current, streamId, current, span);
-            var seen = perStream.current.get(streamId) || 0;
-            if (current > seen) perStream.current.set(streamId, current);
-            var total = 0;
-            perStream.current.forEach(function (value) {
-              total += value;
-            });
+            // The ledger is keyed by turn, not by step: the model calls of one
+            // answer add up, so a tool step in between cannot drop the total.
+            var ledgerKey = shared.turnLedgerKey(sessionId, turnRef.current);
+            rememberStreamDecode(ledgerKey, streamId, current, span);
+            var total = liveTurnTokens(ledgerKey);
             // Publishing an identical object would re-render the HUD on every
             // poll while nothing grows, which is most of a tool call.
             setLive(function (previous) {
@@ -1812,10 +1812,11 @@ function LiveSpeedBody(props) {
   var lastTokenCount = useRef(0);
   var lastTokenSeenAt = useRef(0);
   var samplesRef = useRef([]);
-  var turnKeyRef = useRef("");
   var wasRunning = useRef(false);
+  // When the run row last disappeared. A short gap inside one answer (a tool
+  // call, a repaint) must not blank the total the way a finished turn does.
+  var stoppedAt = useRef(0);
   var seenTurn = useRef(false);
-  var quietTimer = useRef(null);
   useEffect(
     function () {
       if (props.sessionId !== undefined) activeSessionId = String(props.sessionId);
@@ -1831,10 +1832,9 @@ function LiveSpeedBody(props) {
   var runningState = useState(false);
   var running = runningState[0];
   var setRunning = runningState[1];
-  var totalState = useState(0);
-  var totalTokens = totalState[0];
-  var setTotalTokens = totalState[1];
-  var totalRef = useRef(0);
+  // Last turn this HUD had a key for. The store drops the key between two
+  // steps, and the reading must survive that gap.
+  var lastTurnKey = useRef("");
 
   useEffect(
     function () {
@@ -1857,6 +1857,7 @@ function LiveSpeedBody(props) {
   useEffect(
     function () {
       if (!running) {
+        stoppedAt.current = Date.now();
         lastSpeed.current = 0;
         lastTokenCount.current = 0;
         lastTokenSeenAt.current = 0;
@@ -1874,39 +1875,18 @@ function LiveSpeedBody(props) {
       // well; without it the previous total sat on screen until text arrived.
       if (!wasRunning.current) {
         wasRunning.current = true;
-        startedAt.current = 0;
-        // A run without any step of its own within a moment is a new turn,
-        // so the old total goes. A short gap inside one turn keeps the ledger,
-        // because the step arrives before this fires.
-        seenTurn.current = false;
-        if (quietTimer.current) clearTimeout(quietTimer.current);
-        quietTimer.current = setTimeout(function () {
-          if (!seenTurn.current) {
-            totalRef.current = 0;
-            setTotalTokens(0);
-          }
-        }, 700);
-      }
-      // Resume the turn's own clock and total: switching sessions and coming
-      // back must not restart the reading from zero. A key only exists once the
-      // turn is identified, so nothing is restored before that — otherwise the
-      // previous turn's total would open the new one at its last value.
-      if (turnKey !== "") {
-        // A different turn means a different ledger: the previous total must not
-        // carry over even if the HUD never saw the gap between the two runs.
-        if (turnKeyRef.current !== "" && turnKeyRef.current !== turnKey) {
-          totalRef.current = 0;
-          setTotalTokens(0);
+        // A new answer after a real pause starts from nothing; a gap of a few
+        // hundred milliseconds is the same run and keeps its numbers.
+        if (Date.now() - stoppedAt.current > 1500) {
+          startedAt.current = 0;
+          seenTurn.current = false;
         }
-        turnKeyRef.current = turnKey;
+      }
+      if (turnKey !== "") {
+        seenTurn.current = true;
         if (startedAt.current === 0) {
           startedAt.current = liveTurnStart.get(turnKey) || Date.now();
           liveTurnStart.set(turnKey, startedAt.current);
-        }
-        var stored = liveTurnTotals.get(turnKey) || 0;
-        if (stored > totalRef.current) {
-          totalRef.current = stored;
-          setTotalTokens(stored);
         }
       }
       // Tick once when text starts flowing so the first reading is immediate.
@@ -1988,40 +1968,8 @@ function LiveSpeedBody(props) {
     [running, now, tokens, cfg.liveSpeed]
   );
 
-  useEffect(
-    function () {
-      if (!running) {
-        if (turnKeyRef.current !== "") liveTurnTotals.set(turnKeyRef.current, totalRef.current);
-        startedAt.current = 0;
-        return;
-      }
-      // This reading counts the text being generated, never the prompt or the
-      // cache: those are settled before the first token, and folding them in
-      // turned the counter into millions the moment a turn began.
-      var candidate = Math.min(Math.round(tokens), 10000000);
-      // A new turn restarts the host count at zero. When the count falls far
-      // below what is on screen, this is a new turn and not a small wobble,
-      // so the ledger starts over instead of holding the old maximum.
-      if (candidate < totalRef.current / 2 && totalRef.current - candidate > 20) {
-        totalRef.current = 0;
-        setTotalTokens(0);
-      }
-      var next = Math.max(totalRef.current, candidate);
-      if (next !== totalRef.current) {
-        totalRef.current = next;
-        if (turnKeyRef.current !== "") {
-          liveTurnTotals.set(turnKeyRef.current, next);
-          if (liveTurnTotals.size > 200) {
-            var oldestTotal = liveTurnTotals.keys().next().value;
-            if (oldestTotal !== undefined) liveTurnTotals.delete(oldestTotal);
-          }
-        }
-        setTotalTokens(next);
-      }
-    },
-    [running, tokens]
-  );
-
+  // The reading is read from the per-turn ledger while rendering, so a switch
+  // of session or turn can never show the previous one for even a frame.
   useEffect(
     function () {
       if (!key || !cfg.liveSpeed || display <= 0) return;
@@ -2061,7 +2009,10 @@ function LiveSpeedBody(props) {
   var speed = display > 0 ? display : 0;
   // Until this turn has a step of its own there is nothing to report, so the
   // reading is empty rather than the previous turn's last value.
-  var shownTotal = seenTurn.current ? Math.max(totalTokens, Math.round(tokens)) : 0;
+  if (gateKey !== "") lastTurnKey.current = shared.turnLedgerKey(props.sessionId, gateKey);
+  // Read straight from the turn ledger: a switch of session or turn shows
+  // the new one numbers, never the previous one.
+  var shownTotal = seenTurn.current ? Math.min(liveTurnTokens(lastTurnKey.current), 10000000) : 0;
   var totalElapsed = startedAt.current > 0 ? now - startedAt.current : 0;
 
   var pill = h(
@@ -2148,6 +2099,7 @@ function TurnReportBody(props) {
     },
     [nodes, turn]
   );
+  var usageTargetState = useState(null);
   var usageTarget = usageTargetState[0];
   var setUsageTarget = usageTargetState[1];
   var timeTargetState = useState(null);

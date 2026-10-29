@@ -108,7 +108,9 @@ async function main() {
   };
 
   const rect = await evaluate(`(() => {
-    const rows = Array.from(document.querySelectorAll("[data-row-key], [role=treeitem], [data-session-id]"));
+    // Session rows carry data-row-key; the tree row and hover card share the
+    // same text, so only these are safe to click.
+    const rows = Array.from(document.querySelectorAll('[data-row-key^="session:"]'));
     const row = rows.find((candidate) => candidate.innerText.includes(${JSON.stringify(titleArg)}));
     if (!row) return null;
     const box = row.getBoundingClientRect();
@@ -117,20 +119,16 @@ async function main() {
   console.log("row:", JSON.stringify(rect));
   if (!rect) throw new Error("session row not found");
 
-  await cdp.send("Input.dispatchMouseEvent", {
-    type: "mousePressed",
-    x: rect.x,
-    y: rect.y,
-    button: "left",
-    clickCount: 1,
-  });
-  await cdp.send("Input.dispatchMouseEvent", {
-    type: "mouseReleased",
-    x: rect.x,
-    y: rect.y,
-    button: "left",
-    clickCount: 1,
-  });
+  // Click through the element: a synthetic mouse event lands on whatever hover
+  // card is drawn above the row, which opened nothing.
+  const opened = await evaluate(`(() => {
+    const rows = Array.from(document.querySelectorAll('[data-row-key^="session:"]'));
+    const row = rows.find((candidate) => candidate.innerText.includes(${JSON.stringify(titleArg)}));
+    if (!row) return false;
+    row.click();
+    return true;
+  })()`);
+  if (!opened) throw new Error("session row not clickable");
   await sleep(4000);
 
   const result = await evaluate(`(() => ({
@@ -145,6 +143,24 @@ async function main() {
     body: document.body.innerText.slice(0, 900)
   }))()`);
   console.log(JSON.stringify(result, null, 2));
+
+  // A seat that crashed shows an empty data-slot-error and no report at all.
+  // That is how a broken report looked in a real session, so it is a failure.
+  const seatErrors = await evaluate(
+    'Array.from(document.querySelectorAll("[data-slot-error]")).filter((n) => n.getAttribute("data-slot-error") === "conversation.chat.turnTail").length'
+  );
+  const shown = Array.isArray(result.reports) ? result.reports.length : 0;
+  console.log(`seat errors: ${seatErrors}`);
+  console.log(`reports: ${shown}`);
+  if (seatErrors > 0) {
+    console.error("REPORT FAILED: the turn tail seat crashed");
+    process.exitCode = 1;
+  } else if (shown === 0) {
+    console.error("REPORT FAILED: no report rendered for this session");
+    process.exitCode = 1;
+  } else {
+    console.log("REPORT OK");
+  }
 
   if (shotArg) {
     const shot = await cdp.send("Page.captureScreenshot", { format: "png" });

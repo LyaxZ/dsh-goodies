@@ -31,6 +31,41 @@ function equal(name, actual, expected) {
   check(name, Object.is(actual, expected), `expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
 }
 
+// -- which step is generating -----------------------------------------------
+
+// A thinking phase streams before the answer's step is visible. The reading has
+// to open on the running step node, or it sits at zero until visible text lands.
+const withPartial = { legacy: { partial: { turn: 3, step: 2 } } };
+equal("a visible partial names its step", shared.stepKey(withPartial), "3:2");
+const runningStep = { nodes: { values: () => [{ kind: "assistant-step", data: { status: "running", turn: 5, step: 1 } }] } };
+equal("a running step names the thinking phase", shared.stepKey(runningStep), "5:1");
+const doneStep = { nodes: { values: () => [{ kind: "assistant-step", data: { status: "done", turn: 5, step: 1 } }] } };
+equal("a finished step is not counted", shared.stepKey(doneStep), "");
+equal("no step before the answer starts", shared.stepKey({}), "");
+equal("a broken node list is not fatal", shared.stepKey({ nodes: { values: () => { throw new Error("boom"); } } }), "");
+// -- hooks stay declared ----------------------------------------------------
+
+// A component crashed in the field because a useState declaration was dropped
+// while only its destructuring stayed: the seat rendered an empty slot instead
+// of a report. Catch that shape here, before a build ever ships.
+{
+  const clientSource = await readFile(join(ROOT, "src", "client.js"), "utf8");
+  const declared = new Set([...clientSource.matchAll(/var (\w+State) = useState\(/g)].map((m) => m[1]));
+  const used = new Set([...clientSource.matchAll(/\b(\w+State)\[0\]/g)].map((m) => m[1]));
+  const missing = [...used].filter((name) => !declared.has(name));
+  equal("every state hook used is declared", missing.join(","), "");
+}
+// -- per-turn ledger key ----------------------------------------------------
+
+// The reading belongs to a turn, not to a step: every model call of one answer
+// adds up, and two sessions must never share a total.
+const ledger = (session, gate) => shared.turnLedgerKey(session, gate);
+equal("the ledger key ignores the step", ledger("s1", "7:1"), ledger("s1", "7:9"));
+equal("the ledger key separates sessions", ledger("a", "7:1") === ledger("b", "7:1"), false);
+equal("the ledger key is empty before a turn", ledger("a", ""), "");
+equal("the ledger key normalises a session-qualified key", ledger("a", "a:7"), "a:7");
+equal("the ledger key matches the report's own key", ledger("a", "a:7"), "a:7");
+equal("the ledger key keeps a bare test key under the session", ledger("a", "probe:1"), "a:probe");
 // -- configuration ----------------------------------------------------------
 
 const defaults = shared.normalizeConfig(null);

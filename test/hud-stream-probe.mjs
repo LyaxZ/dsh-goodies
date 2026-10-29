@@ -117,17 +117,19 @@ async function main() {
     window.fetch = function (input, init) {
       const url = typeof input === "string" ? input : input && input.url;
       if (typeof url === "string" && url.indexOf("/dsh-goodies/live") !== -1) {
-        const node = document.getElementById("dtk-fake-answer");
-        const chars = node ? node.textContent.length : 0;
+        // Each model call is its own host stream; a new step starts its count
+        // over, which is exactly the moment the turn total must hold.
+        const stream = window.__dtkStream || 1;
+        const count = stream === 1 ? window.__dtkChars || 0 : window.__dtkSecond || 0;
         const entry = {
-          streamId: 1,
-          chars: chars,
-          estimated: Math.round(chars / 4),
+          streamId: stream,
+          estimated: Math.round(count / 4),
           usage: 0,
-          exact: false,
-          active: true,
+          firstAt: stream === 1 ? started : started + 2000,
+          lastAt: Date.now(),
           startedAt: started,
         };
+        // Any session id the page asks for is this one stand-in session.
         const sessions = new Proxy({}, { get: () => entry });
         return Promise.resolve({ ok: true, json: () => Promise.resolve({ at: Date.now(), sessions: sessions }) });
       }
@@ -152,32 +154,57 @@ async function main() {
   await sleep(700);
 
   const samples = [];
-  for (let step = 0; step < 16; step += 1) {
+  const readPill = async () =>
+    await ev(`(() => {
+      const pill = document.querySelector("[data-goodies-live-speed]");
+      if (!pill) return null;
+      return {
+        total: Number(pill.getAttribute("data-live-total")),
+        speed: parseFloat(pill.getAttribute("data-live-now")) || 0,
+      };
+    })()`);
+  for (let step = 0; step < 8; step += 1) {
     await ev(`(() => {
       const answer = document.getElementById("dtk-fake-answer");
       answer.textContent += " alpha bravo charlie delta";
-      return answer.textContent.length;
+      window.__dtkChars = (window.__dtkChars || 0) + answer.textContent.length;
+      return true;
     })()`);
     await sleep(120);
-    samples.push(
-      await ev(`(() => {
-        const pill = document.querySelector("[data-goodies-live-speed]");
-        if (!pill) return null;
-        return {
-          total: Number(pill.getAttribute("data-live-total")),
-          speed: parseFloat(pill.getAttribute("data-live-now")) || 0,
-        };
-      })()`)
-    );
+    samples.push(await readPill());
   }
-
+  const beforeTool = samples.filter(Boolean).map((s) => s.total).pop() || 0;
+  // A tool call ends the model call: the next step is a new host stream whose
+  // own count starts at zero. The turn total must not follow it down.
+  await ev(`(() => {
+    window.__dtkTestTurn = "probe:2";
+    window.__dtkStream = 2;
+    window.__dtkSecond = 0;
+    return true;
+  })()`);
+  for (let step = 0; step < 8; step += 1) {
+    await ev(`(() => {
+      window.__dtkSecond = (window.__dtkSecond || 0) + 5;
+      return true;
+    })()`);
+    await sleep(120);
+    samples.push(await readPill());
+  }
+  const afterTool = samples.filter(Boolean).map((s) => s.total);
+  const lowestAfter = Math.min(...afterTool.slice(8));
   const totals = samples.filter(Boolean).map((s) => s.total);
   const distinct = new Set(totals).size;
   const growing = totals.every((value, index) => index === 0 || value >= totals[index - 1]);
   console.log("totals:", JSON.stringify(totals));
+  console.log("totals:", JSON.stringify(totals));
   check("the reading exists while text grows", totals.length > 0, samples.length);
   check("the total moves with the text", distinct >= 4, { distinct, totals });
   check("the total never steps back", growing, totals);
+  check(
+    "the total survives a new step",
+    lowestAfter >= beforeTool - 1,
+    { beforeTool, lowestAfter, tails: afterTool.slice(8) }
+  );
   check("a speed is shown", samples.some((s) => s && s.speed > 0), samples);
 
   // Roughly a token per second of text cannot exceed the total on screen.
@@ -204,3 +231,4 @@ main().catch((error) => {
   child.kill();
   process.exit(1);
 });
+
