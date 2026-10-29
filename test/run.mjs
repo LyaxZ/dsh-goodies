@@ -39,7 +39,7 @@ equal("default liveSpeed", defaults.liveSpeed, true);
 equal("default turnReport", defaults.turnReport, true);
 equal("default completionNotify", defaults.completionNotify, false);
 equal("default notifySound", defaults.notifySound, false);
-equal("default notifyMinSeconds", defaults.notifyMinSeconds, 5);
+equal("default notifyMinSeconds", defaults.notifyMinSeconds, 0);
 
 const coerced = shared.normalizeConfig({
   effortShift: false,
@@ -287,9 +287,22 @@ for (const [label, needle] of [
 for (const id of ["effort", "live", "report", "notify"]) {
   check(`the card has a section for ${id}`, clientSource.includes(`id: "${id}"`));
 }
+// A menu the plugin did not decorate must keep working: the hiding rule is
+// scoped to the attribute decoration adds, so turning the feature off (or
+// finding a menu that is not the effort pane) leaves the native menu usable.
+check(
+  "only a decorated menu is hidden",
+  sharedSource.includes('div[role="menu"][data-dtk-effort-menu]:has(> button[role="menuitemradio"])')
+);
+check(
+  "the host stamps the first delta",
+  hostSource.includes("firstAt: 0") && hostSource.includes("state.firstAt = now")
+);
+check("the live poll never overlaps itself", clientSource.includes("if (inFlight) return;"));
+check("the run clock survives a setting change", clientSource.includes("runStartedAt.current"));
 // Every selector the HUD asks for has to exist: a missing one throws during
 // render and the whole reading disappears.
-for (const selector of ["liveKey", "liveChars", "liveEstimate", "liveExact", "liveUsageTotal"]) {
+for (const selector of ["liveKey", "liveChars", "liveEstimate", "liveUsageTotal"]) {
   check(`selector ${selector} is defined`, clientSource.includes(`function ${selector}(`) || clientSource.includes(`function ${selector}(snapshot)`));
 }
 check("the report only shows a measured speed", clientSource.includes("enoughToJudge") && !clientSource.includes("derivedTps"));

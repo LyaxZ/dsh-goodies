@@ -132,7 +132,6 @@ function createLiveState() {
   const blank = () => ({
     streamId: 0,
     firstAt: 0,
-    chars: 0,
     estimated: 0,
     usage: 0,
     startedAt: 0,
@@ -154,22 +153,22 @@ function createLiveState() {
   return {
     begin(id) {
       if (id === "") return;
-      // One stream is one model call. Starting a fresh segment lets the client
-      // add up the calls of a turn instead of reading a session-wide total. The
-      // finished segment is kept as `previous` so the client banks the host's
-      // final numbers instead of whatever the last poll happened to catch.
+      // One stream is one model call; a fresh segment keeps the count per call.
       const previous = sessions.get(id) ?? blank();
       const state = blank();
       state.streamId = previous.streamId + 1;
-      state.previous = {
-        streamId: previous.streamId,
-        usage: previous.usage,
-        estimated: Math.round(previous.estimated),
-      };
       state.startedAt = Date.now();
       state.lastAt = state.startedAt;
       state.active = true;
       sessions.set(id, state);
+      // Sessions come and go for the life of the process; forget the idle ones
+      // so this map cannot grow without bound.
+      if (sessions.size > 64) {
+        for (const [key, entry] of sessions) {
+          if (sessions.size <= 64) break;
+          if (entry.active !== true) sessions.delete(key);
+        }
+      }
     },
     fold(id, chunk, now) {
       if (id === "") return;
@@ -194,7 +193,6 @@ function createLiveState() {
         }
         const args = typeof chunk.argumentsDelta === "string" ? chunk.argumentsDelta : "";
         if (args.length === 0) return;
-        state.chars += args.length;
         state.estimated += weight(args);
         state.lastAt = now;
         return;
@@ -205,7 +203,6 @@ function createLiveState() {
           : "";
       if (text.length === 0) return;
       if (state.firstAt === 0) state.firstAt = now;
-      state.chars += text.length;
       state.estimated += weight(text);
       state.lastAt = now;
     },
@@ -214,20 +211,19 @@ function createLiveState() {
       const state = sessions.get(id);
       if (state) state.active = false;
     },
-    snapshot() {
+    snapshot(sessionId) {
+      // The browser polls one session at a time; answering with just that entry
+      // keeps the payload flat as the process accumulates sessions.
       const out = {};
       for (const [id, state] of sessions) {
+        if (sessionId !== undefined && id !== sessionId) continue;
         out[id] = {
           streamId: state.streamId,
-          chars: state.chars,
           estimated: Math.round(state.estimated),
           usage: state.usage,
-          exact: state.usage > 0,
-          previous: state.previous ?? null,
           startedAt: state.startedAt,
           firstAt: state.firstAt,
           lastAt: state.lastAt,
-          active: state.active,
         };
       }
       return { at: Date.now(), sessions: out };
@@ -248,14 +244,21 @@ function installLiveChannel(ctx) {
           kind: "prefix",
           path: "/dsh-goodies/live",
           handler: (req, res) => {
-            const rejection = typeof connection.requestRejection === "function" ? connection.requestRejection(req) : undefined;
-            if (rejection !== undefined) {
-              res.writeHead(rejection);
-              res.end(rejection === 401 ? "unauthorized" : "forbidden");
+            // Trusted origins only. When the host offers no opinion, fall back to
+            // loopback: this channel is a local readout, not a public endpoint.
+            const rejection =
+              typeof connection.requestRejection === "function" ? connection.requestRejection(req) : undefined;
+            const address = req.socket && req.socket.remoteAddress;
+            const loopback =
+              address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
+            const status = typeof rejection === "number" ? rejection : loopback ? 0 : 403;
+            if (status !== 0) {
+              res.writeHead(status);
+              res.end(status === 401 ? "unauthorized" : "forbidden");
               return;
             }
-            res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
-            res.end(JSON.stringify(live.snapshot()));
+            const asked = new URL(req.url ?? "/", "http://localhost").searchParams.get("sessionId");
+            res.end(JSON.stringify(live.snapshot(asked === null ? undefined : asked)));
           },
         }),
       "dsh-goodies: live channel"

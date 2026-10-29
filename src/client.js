@@ -1,21 +1,14 @@
 /**
-}
-  });
-  var perStream = useRef(new Map());
-  var turnRef = useRef(turnKey);
-  var ledgerTurn = useRef("");
-  turnRef.current = turnKey;
-  useEffect(
-    function () {
-      // The key goes empty between two steps. Only a different, non-empty key
-      // is a new turn; clearing on the way back would wipe the finished step.
-      if (turnKey === "" || ledgerTurn.current === turnKey) return;
-      ledgerTurn.current = turnKey;
-      perStream.current.clear();
-      setLive({ tokens: 0, startedAt: 0, ok: null });
-    },
-    [turnKey]
-  );
+ * dsh-goodies — browser half.
+ *
+ * A small collection of independent conveniences for the DSH Web GUI:
+ *
+ *  * a horizontal effort rail inside the native reasoning-level menu;
+ *  * a live tokens/second reading beside the running status;
+ *  * a one-line report at the end of each turn;
+ *  * a completion notification with its own chime.
+ *
+ * Module scope stays side-effect free: the loader materializes the factory only
  * when the plugin activates, and every DOM touch lives inside `apply`.
  *
  * @module dsh-goodies/client
@@ -382,14 +375,34 @@ function useScopeReady() {
 // DOM helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Add this plugin's stylesheet, replacing a stale copy left by an earlier build.
+ *
+ * Returns a disposer so unloading the plugin also removes the sheet: leaving
+ * it behind kept the menu-hiding rule alive after the feature was gone.
+ * @returns {Function} disposer.
+ */
 function installStyles() {
-  if (typeof document === "undefined") return;
-  if (document.querySelector('style[data-plugin-css="' + shared.STYLE_ID + '"]') !== null) return;
+  if (typeof document === "undefined") return function () {};
+  var tag = 'style[data-plugin-css="' + shared.STYLE_ID + '"]';
+  var existing = document.querySelector(tag);
+  if (existing !== null) {
+    // A rebuilt bundle may carry newer rules; refresh the text in place.
+    if (existing.textContent !== shared.CSS) existing.textContent = shared.CSS;
+    return function () {
+      var live = document.querySelector(tag);
+      if (live !== null) live.remove();
+    };
+  }
   var style = document.createElement("style");
   style.dataset.plugin = NAMESPACE;
   style.dataset.pluginCss = shared.STYLE_ID;
   style.textContent = shared.CSS;
   document.head.appendChild(style);
+  return function () {
+    var live = document.querySelector(tag);
+    if (live !== null && live === style) live.remove();
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -421,14 +434,17 @@ function flashTitle(text) {
   var timer = setInterval(function () {
     if (titleFlash === null) return;
     ticks += 1;
-    on = !on;
+    var foreground = !document.hidden && document.hasFocus();
+    // In front of the user the marker should be readable rather than blink:
+    // hold it for one beat, then restore. A background tab keeps blinking.
+    on = foreground ? true : !on;
     try {
       document.title = on ? "● " + titleFlash.text : titleFlash.base;
     } catch (error) {
       stopTitleFlash();
       return;
     }
-    if (ticks >= 16 || (!document.hidden && document.hasFocus())) stopTitleFlash();
+    if (foreground ? ticks >= 2 : ticks >= 16) stopTitleFlash();
   }, 750);
   titleFlash = { base: base, text: text, timer: timer };
 }
@@ -456,6 +472,9 @@ function unlockAudio() {
 }
 
 function playChime() {
+  // Try to open the output here as well: a user who only ever presses Enter has
+  // never triggered the pointer listener, and the first chime used to be lost.
+  if (audioContext === null) unlockAudio();
   if (audioContext === null) return;
   var start = audioContext.currentTime;
   var tones = [880, 1320];
@@ -521,26 +540,55 @@ function notifyCompletion(ctx, t, row, elapsedMs) {
 // ---------------------------------------------------------------------------
 
 /** Host-generation model catalog, loaded lazily when the menu is first used. */
-var catalogState = { status: "idle", value: null, error: null, promise: null };
+var catalogState = { status: "idle", value: null, error: null, promise: null, failedAt: 0 };
 
 /** Translate seat captured by `installEffortMenu`, for labels it writes itself. */
 var effortT = fallbackT;
 
 /** A microtask-coalesced scan of the open menus. */
+/**
+ * Did a batch of mutations change the element tree rather than only text?
+ *
+ * Streaming text arrives as text nodes, which cannot open a menu; skipping
+ * those keeps the observers off the hot path of a running answer.
+ * @param {MutationRecord[]} records - the batch the observer delivered.
+ * @returns {boolean} whether any element or attribute changed.
+ */
+function hasElementMutation(records) {
+  for (var index = 0; index < records.length; index += 1) {
+    var record = records[index];
+    if (record.type === "attributes") return true;
+    for (var side = 0; side < 2; side += 1) {
+      var nodes = side === 0 ? record.addedNodes : record.removedNodes;
+      for (var nodeIndex = 0; nodeIndex < nodes.length; nodeIndex += 1) {
+        if (nodes[nodeIndex].nodeType === 1) return true;
+      }
+    }
+  }
+  return false;
+}
+
 var effortMenuScanScheduled = false;
 
 function scheduleEffortMenuScan() {
   if (effortMenuScanScheduled) return;
   effortMenuScanScheduled = true;
-  Promise.resolve().then(function () {
+  // One scan per frame: scroll and resize fire far more often than the menu
+  // can move, and a microtask per event meant several scans per frame.
+  var run = function () {
     effortMenuScanScheduled = false;
     scanEffortMenus();
-  });
+  };
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(run);
+  else Promise.resolve().then(run);
 }
 
 function loadCatalog() {
   if (catalogState.status === "ready" && catalogState.value !== null) return Promise.resolve(catalogState.value);
   if (catalogState.promise !== null) return catalogState.promise;
+  // A failed attempt is retried after a short pause rather than leaving the
+  // panel without default markers for the rest of the page load.
+  if (catalogState.status === "error" && Date.now() - catalogState.failedAt < 15000) return Promise.resolve(null);
   if (remoteSession === null || typeof remoteSession.modelCatalog !== "function") return Promise.resolve(null);
   catalogState.status = "loading";
   catalogState.promise = Promise.resolve()
@@ -565,6 +613,7 @@ function loadCatalog() {
       },
       function (error) {
         catalogState.status = "error";
+        catalogState.failedAt = Date.now();
         catalogState.error = error && error.message ? error.message : String(error);
         catalogState.promise = null;
         return null;
@@ -1228,9 +1277,13 @@ function decorateEffortMenu(menu) {
       animIndex: -1,
       animStart: 0,
       moved: false,
-      dragStartRatio: 0,
       dragStartX: 0,
       preview: -1,
+      // The rows this rail was built from; refreshed on every scan so the
+      // keyboard never commits a level the native pane has since moved past.
+      visible: visible,
+      active: active,
+      activeIndex: activeIndex,
       ratio: visible.length <= 1 ? 0 : activeIndex / (visible.length - 1),
       pendingX: null,
       frame: 0,
@@ -1242,9 +1295,6 @@ function decorateEffortMenu(menu) {
       var travel = box.width - EFFORT_THUMB;
       if (!(travel > 0)) return 0;
       return Math.max(0, Math.min(1, (clientX - box.left - EFFORT_HALF) / travel));
-    };
-    var posForEvent = function (clientX) {
-      return Math.round(ratioForEvent(clientX) * (state.count - 1));
     };
     var visualRatio = function () {
       var box = track.getBoundingClientRect();
@@ -1344,7 +1394,6 @@ function decorateEffortMenu(menu) {
       state.dragging = true;
       state.moved = false;
       state.ratio = visualRatio();
-      state.dragStartRatio = state.ratio;
       state.dragStartX = event.clientX;
       track.setAttribute("data-drag", "true");
       try {
@@ -1415,8 +1464,10 @@ function decorateEffortMenu(menu) {
       track.removeAttribute("data-drag");
     };
     track.onkeydown = function (event) {
-      var current = visible.indexOf(active);
-      if (current < 0) current = activeIndex;
+      var rows = state.visible || visible;
+      var currentRow = state.active || active;
+      var current = rows.indexOf(currentRow);
+      if (current < 0) current = state.activeIndex;
       var next = -1;
       if (event.key === "ArrowRight" || event.key === "ArrowUp") next = Math.min(state.count - 1, current + 1);
       else if (event.key === "ArrowLeft" || event.key === "ArrowDown") next = Math.max(0, current - 1);
@@ -1435,6 +1486,13 @@ function decorateEffortMenu(menu) {
   // Later scans must not repaint it: the user's local choice is the truth for
   // this open panel, and the native row can lag behind by a render.
   var sliderState = menu.__dtkSlider;
+  if (sliderState) {
+    // The rows can change while the panel stays open; keep the rail's idea
+    // of them current so the keyboard never commits a stale level.
+    sliderState.visible = visible;
+    sliderState.active = active;
+    sliderState.activeIndex = activeIndex;
+  }
   if (createdSlider && sliderState) {
     sliderState.track.setAttribute("aria-label", effortT("effort.title", { name: activeLabel }));
     sliderState.track.setAttribute("aria-valuemin", "0");
@@ -1492,20 +1550,22 @@ function effortRgb(color) {
 function installEffortMenu(t) {
   effortT = typeof t === "function" ? t : fallbackT;
   if (typeof document === "undefined" || typeof MutationObserver === "undefined") return function () {};
-  var observer = new MutationObserver(function () {
-    scheduleEffortMenuScan();
+  var observer = new MutationObserver(function (records) {
+    // Only an element change can open or close a menu; text-only batches,
+    // which is what streaming produces, are ignored outright.
+    if (hasElementMutation(records)) scheduleEffortMenuScan();
   });
   observer.observe(document.body, { childList: true, subtree: true });
   var reposition = function () {
     scheduleEffortMenuScan();
   };
   window.addEventListener("resize", reposition);
-  window.addEventListener("scroll", reposition, true);
+  window.addEventListener("scroll", reposition, { capture: true, passive: true });
   scheduleEffortMenuScan();
   return function () {
     observer.disconnect();
     window.removeEventListener("resize", reposition);
-    window.removeEventListener("scroll", reposition, true);
+    window.removeEventListener("scroll", reposition, { capture: true, passive: true });
   };
 }
 
@@ -1603,12 +1663,22 @@ function useRemoteLive(sessionId, turnKey, enabled) {
     function () {
       if (!enabled || typeof fetch !== "function") return undefined;
       var stopped = false;
+      // One poll at a time: a slow answer from an earlier turn must not
+      // overwrite the totals of the turn that is running now.
+      var inFlight = false;
+      var missed = 0;
       var read = function () {
-        fetch("/dsh-goodies/live", { credentials: "same-origin", cache: "no-store" })
+        if (inFlight) return;
+        inFlight = true;
+        fetch("/dsh-goodies/live?sessionId=" + encodeURIComponent(String(sessionId)), {
+          credentials: "same-origin",
+          cache: "no-store",
+        })
           .then(function (response) {
             return response.ok ? response.json() : null;
           })
           .then(function (body) {
+            inFlight = false;
             if (stopped) return;
             // Nothing counts before this turn has a step of its own.
             if (turnRef.current === "") return;
@@ -1617,7 +1687,14 @@ function useRemoteLive(sessionId, turnKey, enabled) {
               return;
             }
             var entry = body.sessions[String(sessionId)];
-            if (!entry) return;
+            if (!entry) {
+              // No entry yet is normal for a moment; a lasting absence means the
+              // host cannot name this session, so the local estimate takes over.
+              missed += 1;
+              if (missed > 8) setLive({ tokens: 0, startedAt: 0, ok: false });
+              return;
+            }
+            missed = 0;
             var streamId = Number(entry.streamId) || 0;
             var current =
               Number(entry.usage) > 0 ? Math.round(entry.usage) : Math.round(entry.estimated || 0);
@@ -1627,15 +1704,27 @@ function useRemoteLive(sessionId, turnKey, enabled) {
             var lastAt = Number(entry.lastAt) || 0;
             var span = firstAt > 0 && lastAt > firstAt ? lastAt - firstAt : 0;
             rememberStreamDecode(turnRef.current, streamId, current, span);
-            var previous = perStream.current.get(streamId) || 0;
-            if (current > previous) perStream.current.set(streamId, current);
+            var seen = perStream.current.get(streamId) || 0;
+            if (current > seen) perStream.current.set(streamId, current);
             var total = 0;
             perStream.current.forEach(function (value) {
               total += value;
             });
-            setLive({ tokens: total, startedAt: entry.startedAt || 0, ok: true });
+            // Publishing an identical object would re-render the HUD on every
+            // poll while nothing grows, which is most of a tool call.
+            setLive(function (previous) {
+              if (
+                previous.ok === true &&
+                previous.tokens === total &&
+                previous.startedAt === (entry.startedAt || 0)
+              ) {
+                return previous;
+              }
+              return { tokens: total, startedAt: entry.startedAt || 0, ok: true };
+            });
           })
           .catch(function () {
+            inFlight = false;
             if (!stopped) setLive({ tokens: 0, startedAt: 0, ok: false });
           });
       };
@@ -1649,20 +1738,6 @@ function useRemoteLive(sessionId, turnKey, enabled) {
     [enabled, sessionId]
   );
   return live;
-}
-
-function liveExact(snapshot) {
-  var nodes = snapshot && snapshot.nodes;
-  if (!nodes || typeof nodes.values !== "function") return 0;
-  var values = nodes.values();
-  for (var index = values.length - 1; index >= 0; index -= 1) {
-    var node = values[index];
-    if (node && node.kind === "assistant-step" && node.data && node.data.status === "running") {
-      var usage = node.data.usage;
-      return usage && typeof usage.outputTokens === "number" && Number.isFinite(usage.outputTokens) ? usage.outputTokens : 0;
-    }
-  }
-  return 0;
 }
 
 function usageTotalOf(usage) {
@@ -1728,7 +1803,6 @@ function LiveSpeedBody(props) {
   var key = useChat(liveKey);
   var chars = useChat(liveChars);
   var estimate = useChat(liveEstimate);
-  var exact = useChat(liveExact);
   var turnKey = key === "" ? "" : (props.sessionId === undefined ? "" : String(props.sessionId) + ":") + String(key).split(":")[0];
   var nowState = useState(Date.now());
   var now = nowState[0];
@@ -1736,12 +1810,10 @@ function LiveSpeedBody(props) {
   var startedAt = useRef(0);
   var lastSpeed = useRef(0);
   var lastTokenCount = useRef(0);
-  var lastTokenAt = useRef(0);
   var lastTokenSeenAt = useRef(0);
   var samplesRef = useRef([]);
   var turnKeyRef = useRef("");
   var wasRunning = useRef(false);
-  var answerBase = useRef(-1);
   var seenTurn = useRef(false);
   var quietTimer = useRef(null);
   useEffect(
@@ -1787,7 +1859,6 @@ function LiveSpeedBody(props) {
       if (!running) {
         lastSpeed.current = 0;
         lastTokenCount.current = 0;
-        lastTokenAt.current = 0;
         lastTokenSeenAt.current = 0;
         samplesRef.current.length = 0;
         wasRunning.current = false;
@@ -2069,7 +2140,14 @@ function TurnReportBody(props) {
     },
     [nodes, turn]
   );
-  var usageTargetState = useState(null);
+  // Every mounted turn tail renders on every store update while a reply
+  // streams; walking the whole node list per tail per update is the cost.
+  var derived = useMemo(
+    function () {
+      return shared.readTurnUsage(nodes, turn);
+    },
+    [nodes, turn]
+  );
   var usageTarget = usageTargetState[0];
   var setUsageTarget = usageTargetState[1];
   var timeTargetState = useState(null);
@@ -2081,6 +2159,16 @@ function TurnReportBody(props) {
       if (!cfg.turnReport || turnNumber === null) {
         setUsageTarget(null);
         setTimeTarget(null);
+        return;
+      }
+      // The slots stay put once installed; skip the whole-document lookup
+      // until DSH re-renders them away.
+      if (
+        usageTarget !== null &&
+        timeTarget !== null &&
+        usageTarget.isConnected &&
+        timeTarget.isConnected
+      ) {
         return;
       }
       var root = document.querySelector('[data-turn-tail="' + turnNumber + '"] [data-clock="end"]');
@@ -2120,7 +2208,7 @@ function TurnReportBody(props) {
         setTimeTarget(fallback);
       }
     },
-    [cfg.turnReport, report, usage, turnNumber]
+    [cfg.turnReport, report, usage, turnNumber, usageTarget, timeTarget]
   );
 
   if (!cfg.turnReport || turnNumber === null) return null;
@@ -2128,7 +2216,6 @@ function TurnReportBody(props) {
   var liveTps = liveTurnSpeeds.has(sessionKey) ? liveTurnSpeeds.get(sessionKey) : null;
 
   var breakdown = [];
-  var derived = shared.readTurnUsage(nodes, turn);
   var inputValue = null;
   var outputValue = null;
   var cached = 0;
@@ -2247,6 +2334,9 @@ function NotificationHost(props) {
   var sessions = props.sessions;
   var notify = props.notify;
   var t = typeof props.t === "function" ? props.t : fallbackT;
+  // The run clock lives outside the effect: editing a setting mid-run used to
+  // rebuild the effect, restart the timer and lose that run's notice.
+  var runStartedAt = useRef(0);
 
   useEffect(
     function () {
@@ -2256,16 +2346,15 @@ function NotificationHost(props) {
       // The session list keeps its own `running` bookkeeping, and a list that
       // never flips it leaves the watcher blind. The running row in the chat is
       // the state the user actually sees, so the run is timed from that.
-      var startedAt = 0;
       var check = function () {
         var running = document.querySelector("[data-chat-running]") !== null;
         if (running) {
-          if (startedAt === 0) startedAt = Date.now();
+          if (runStartedAt.current === 0) runStartedAt.current = Date.now();
           return;
         }
-        if (startedAt === 0) return;
-        var elapsed = Date.now() - startedAt;
-        startedAt = 0;
+        if (runStartedAt.current === 0) return;
+        var elapsed = Date.now() - runStartedAt.current;
+        runStartedAt.current = 0;
         if (shared.shouldNotify({ elapsedMs: elapsed, minMs: cfg.notifyMinSeconds * 1000 })) {
           notify(null, t, sessionRow(sessions), elapsed);
         }
@@ -2276,7 +2365,11 @@ function NotificationHost(props) {
       // without waiting for the next tick.
       var observer = null;
       if (typeof MutationObserver !== "undefined") {
-        observer = new MutationObserver(check);
+        observer = new MutationObserver(function (records) {
+          // The run row coming and going is an element change; streaming text
+          // is not, so the hot path costs nothing here.
+          if (hasElementMutation(records)) check();
+        });
         observer.observe(document.body, { childList: true, subtree: true });
       }
       check();
@@ -2318,31 +2411,40 @@ function useSessionCounts() {
   useEffect(
     function () {
       var total = 0;
+      var unsubscribe = null;
+      var subscribed = null;
       var measure = function () {
-        setCounts({ total: total, pageRunning: document.querySelector("[data-chat-running]") !== null });
-      };
-      var service = sessionsService;
-      var unsubscribe = function () {};
-      if (service && service.list && typeof service.list.subscribe === "function") {
-        var read = function () {
-          var rows = [];
-          try {
-            rows = shared.readSessionRows(service.list.getSnapshot());
-          } catch (error) {
-            rows = [];
+        // Read the service on every tick: it may be injected after this card
+        // mounts, and a one-shot read left the count at zero forever.
+        var service = sessionsService;
+        if (service && service.list && typeof service.list.subscribe === "function") {
+          if (subscribed !== service.list) {
+            if (unsubscribe !== null) unsubscribe();
+            subscribed = service.list;
+            unsubscribe = service.list.subscribe(measure);
           }
-          total = rows.length;
-          measure();
+          try {
+            total = shared.readSessionRows(service.list.getSnapshot()).length;
+          } catch (error) {
+            total = 0;
+          }
+        }
+        var next = {
+          total: total,
+          pageRunning: document.querySelector("[data-chat-running]") !== null,
         };
-        unsubscribe = service.list.subscribe(read);
-        read();
-      } else {
-        measure();
-      }
+        // Same values, same object: the card does not re-render while idle.
+        setCounts(function (previous) {
+          return previous.total === next.total && previous.pageRunning === next.pageRunning
+            ? previous
+            : next;
+        });
+      };
+      measure();
       var timer = setInterval(measure, 500);
       return function () {
         clearInterval(timer);
-        unsubscribe();
+        if (unsubscribe !== null) unsubscribe();
       };
     },
     []
@@ -2602,7 +2704,7 @@ function SettingsCard(props) {
  * @param {object} ctx - client plugin context.
  */
 export function apply(ctx) {
-  installStyles();
+  ctx.effect(installStyles, "dsh-goodies: styles");
 
   var t = function (key, params) {
     return translate(activeLocale(ctx), key, params);
@@ -2616,6 +2718,9 @@ export function apply(ctx) {
 
   ctx.effect(
     function () {
+      // A composition without the locale service must not throw during apply;
+      // the fallback dictionary still renders every label.
+      if (!ctx.locale || typeof ctx.locale.register !== "function") return undefined;
       return ctx.locale.register(NAMESPACE, { zh: zh, en: en });
     },
     "dsh-goodies: dictionaries"
