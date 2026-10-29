@@ -2,6 +2,18 @@
 
 Notable changes to **dsh-goodies** land here. Each entry is compared against the previous release only; internal iteration stays out. The Chinese edition lives in [CHANGELOG.md](CHANGELOG.md).
 
+## [0.1.11] - 2026-10-30
+
+### Fixed
+
+- **The total restarted between generations within one turn**: a tool call in the middle no longer sends the count back to zero.
+- **The reading stayed at zero through the thinking phase**: counting now starts with the first reasoning, not with the first visible text.
+- **Switching pages reset the total**: the reading comes back on return instead of waiting for new text.
+
+### Changed
+
+- **A session switch shows that session's reading**: the previous session's number is no longer shown for a moment.
+
 ## [0.1.10] - 2026-10-29
 
 ### Fixed
