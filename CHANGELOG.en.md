@@ -2,6 +2,16 @@
 
 Notable changes to **dsh-goodies** land here. Each entry is compared against the previous release only; internal iteration stays out. The Chinese edition lives in [CHANGELOG.md](CHANGELOG.md).
 
+## [0.1.9] - 2026-10-29
+
+### Fixed
+
+- **The report's output speed read low**: the timing now covers only the time spent generating, without pauses or tool waits.
+
+### Changed
+
+- **The report's speed no longer carries an approximation mark**: a measured generation window is shown as a plain number.
+
 ## [0.1.8] - 2026-10-28
 
 ### Fixed
