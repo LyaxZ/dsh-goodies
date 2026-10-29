@@ -2,6 +2,23 @@
 
 Notable changes to **dsh-goodies** land here. Each entry is compared against the previous release only; internal iteration stays out. The Chinese edition lives in [CHANGELOG.md](CHANGELOG.md).
 
+## [0.1.10] - 2026-10-29
+
+### Fixed
+
+- **The model menu could not be opened after the effort slider was switched off**: the feature no longer affects the native menu while it is disabled.
+- **A finished turn could go unannounced after a setting change or a page switch**: the run clock is no longer restarted by an edit.
+- **The title hint flashed for no visible time in the foreground without notification permission**: it now stays long enough to read.
+- **A keyboard-only user never heard the chime**: the first reminder opens the audio output.
+- **The settings card could show a session count of zero**: the list is picked up when it becomes available.
+- **Keyboard level switching could commit the same level twice**: the rail follows the rows that are actually open.
+
+### Changed
+
+- **Less repeated work while an answer streams**: the interface refreshes only when needed, which matters on long answers and long histories.
+- **Memory no longer grows with the number of sessions**: finished sessions are dropped, and the stylesheet goes away with the plugin.
+- **The live channel answers only local requests**: anything from another address is rejected.
+
 ## [0.1.9] - 2026-10-29
 
 ### Fixed

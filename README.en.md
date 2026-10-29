@@ -16,7 +16,7 @@ A small set of conveniences for the DeepSeek Harness (DSH) Web GUI: an effort sl
 
 | Plugin version | Supported DSH versions |
 | --- | --- |
-| **0.1.x** (latest, 0.1.9) | 0.2.1-rc.1 through 0.2.1-rc.4, 0.2.2-alpha.2 |
+| **0.1.x** (latest, 0.1.10) | 0.2.1-rc.1 through 0.2.1-rc.4, 0.2.2-alpha.2 |
 
 ## Install
 
