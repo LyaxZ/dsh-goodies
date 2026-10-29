@@ -131,6 +131,7 @@ function createLiveState() {
   const sessions = new Map();
   const blank = () => ({
     streamId: 0,
+    firstAt: 0,
     chars: 0,
     estimated: 0,
     usage: 0,
@@ -203,6 +204,7 @@ function createLiveState() {
           ? chunk.text
           : "";
       if (text.length === 0) return;
+      if (state.firstAt === 0) state.firstAt = now;
       state.chars += text.length;
       state.estimated += weight(text);
       state.lastAt = now;
@@ -223,6 +225,7 @@ function createLiveState() {
           exact: state.usage > 0,
           previous: state.previous ?? null,
           startedAt: state.startedAt,
+          firstAt: state.firstAt,
           lastAt: state.lastAt,
           active: state.active,
         };
