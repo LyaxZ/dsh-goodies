@@ -2,6 +2,13 @@
 
 Notable changes to **dsh-goodies** land here. Each entry is compared against the previous release only; internal iteration stays out. The Chinese edition lives in [CHANGELOG.md](CHANGELOG.md).
 
+## [0.1.13] - 2026-11-03
+
+### Fixed
+
+- **The turn report was cut off in a narrow conversation column**: the figures now step out in order as the room runs short, and dragging the sidebar re-lays them out immediately.
+- **Loose gaps appeared between the usage pill and the clock once figures were gone**: a position that has nothing left to show is removed with its spacing.
+
 ## [0.1.12] - 2026-11-03
 
 ### Fixed
