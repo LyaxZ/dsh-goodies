@@ -584,19 +584,10 @@ body[data-ds-dark-theme] .dtk-effort-panel .dtk-effort-spark{background:#dbeafe}
 .dtk-slot{display:inline-flex;align-items:center;min-width:0;flex:0 1 auto;overflow:hidden}
 .dtk-report{display:inline-flex;align-items:center;gap:0;margin:0;padding:0;color:inherit;font:inherit;font-size:calc(var(--dsh-content-font-size-secondary,13px) - 1px);line-height:calc(24px + var(--dsh-content-font-delta,0px));font-variant-numeric:tabular-nums;opacity:1;white-space:nowrap;flex:0 1 auto;min-width:0;overflow:hidden}
 .dtk-report-part{white-space:nowrap}
-.dtk-report-part + .dtk-report-part::before{content:"·";margin:0 6px;color:var(--dsw-alias-separator-primary)}
+.dtk-report-sep{margin:0 6px;color:var(--dsw-alias-separator-primary)}
 .dtk-report[data-goodies-turn-report]{max-width:100%}
-/* A narrow window leaves less room than the figures need. The least useful
-   parts step out first, so what remains stays readable instead of running
-   into the pill next to it. */
-@media (max-width:900px){.dtk-report [data-dtk-part="cache"]{display:none}}
-@media (max-width:760px){.dtk-report [data-dtk-part="in"]{display:none}}
-@media (max-width:640px){.dtk-report [data-dtk-part="ttft"]{display:none}}
-@media (max-width:520px){.dtk-report [data-dtk-part="total"]{display:none}}
-/* Below this the row is already full with the pill, the clock and the action
-   icons; a report squeezed in there was cut off mid-glyph, so it steps out. */
-@media (max-width:700px){.dtk-slot[data-dtk-slot="usage"]{display:none}}
-@media (max-width:600px){.dtk-slot[data-dtk-slot="time"]{display:none}}
+/* The figures themselves give way: the report measures the room it has been left
+   and drops the least useful ones until it fits, so no width rule is needed. */
 .dtk-card{list-style:none;border:.5px solid var(--dsw-alias-border-l4);background:var(--dsw-alias-bg-layer-3);border-radius:16px;transition:border-color .16s,background .16s}
 .dtk-card:hover{border-color:var(--dsw-alias-label-dimmed)}
 .dtk-cardOpen{background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-label-dimmed)}

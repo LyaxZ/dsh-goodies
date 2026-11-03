@@ -19,6 +19,7 @@ var createPortal = require("react-dom").createPortal;
 var h = React.createElement;
 var useEffect = React.useEffect;
 var useMemo = React.useMemo;
+var useLayoutEffect = React.useLayoutEffect || React.useEffect;
 var useRef = React.useRef;
 var useState = React.useState;
 var useSyncExternalStore = React.useSyncExternalStore;
@@ -2056,6 +2057,121 @@ function LiveSpeedBody(props) {
 // Per-turn report
 // ---------------------------------------------------------------------------
 
+/**
+ * The order the figures give way in when the footer runs out of room.
+ * Cached first, then the input count, then the output count: after that only the
+ * native usage pill is left. Then the turn duration, and finally the speed, so
+ * the row ends up holding nothing but what DSH itself draws.
+ */
+var REPORT_DROP_ORDER = ["cache", "in", "out", "ttft", "total", "speed"];
+
+/**
+ * Hide figures until this turn's footer fits the room it has been given.
+ *
+ * The room is not a function of the window: the sidebar can be dragged, the
+ * session title changes and the clock grows. So the fit runs on the drawn row
+ * and is repeated whenever that row changes width, which is what makes the
+ * figures go away one by one while the sidebar is being dragged.
+ * @param {Element} row - the footer row of one finished turn.
+ */
+function fitTurnReport(row) {
+  if (row === null || row === undefined) return;
+  var reports = row.querySelectorAll("[data-goodies-turn-report]");
+  var parts = row.querySelectorAll("[data-goodies-turn-report] [data-dtk-part]");
+  var seps = row.querySelectorAll("[data-goodies-turn-report] [data-dtk-sep-for]");
+  if (parts.length === 0) return;
+  var index;
+  var slotOf = function (report) {
+    var parent = report.parentElement;
+    return parent !== null && parent.hasAttribute("data-dtk-slot") ? parent : null;
+  };
+  for (index = 0; index < reports.length; index += 1) {
+    reports[index].style.display = "";
+    var slot = slotOf(reports[index]);
+    if (slot !== null) slot.style.display = "";
+  }
+  for (index = 0; index < parts.length; index += 1) parts[index].style.display = "";
+  for (index = 0; index < seps.length; index += 1) seps[index].style.display = "";
+  // The row itself shrinks to fit, so it never reports an overflow; a report
+  // whose content is wider than its own box is the one being cut, and that is
+  // what has to be relieved. Two pixels absorb sub-pixel rounding.
+  var crowded = function () {
+    var drawn = row.querySelectorAll("[data-goodies-turn-report]");
+    for (var reportIndex = 0; reportIndex < drawn.length; reportIndex += 1) {
+      if (drawn[reportIndex].style.display === "none") continue;
+      if (drawn[reportIndex].scrollWidth > drawn[reportIndex].clientWidth + 2) return true;
+    }
+    return false;
+  };
+  // A report with nothing left in it is put away together with its slot: an
+  // empty slot still costs the row's gap on both sides, which pushed the usage
+  // pill and the clock apart for no reason.
+  var tidy = function () {
+    var drawn = row.querySelectorAll("[data-goodies-turn-report]");
+    for (var reportIndex = 0; reportIndex < drawn.length; reportIndex += 1) {
+      var report = drawn[reportIndex];
+      var figures = report.querySelectorAll("[data-dtk-part]");
+      var alive = false;
+      for (var figureIndex = 0; figureIndex < figures.length; figureIndex += 1) {
+        if (figures[figureIndex].style.display !== "none") alive = true;
+      }
+      report.style.display = alive ? "" : "none";
+      var reportSlot = slotOf(report);
+      if (reportSlot !== null) reportSlot.style.display = alive ? "" : "none";
+    }
+  };
+  var overflowing = crowded();
+  for (index = 0; index < REPORT_DROP_ORDER.length && overflowing; index += 1) {
+    var key = REPORT_DROP_ORDER[index];
+    var part = row.querySelector('[data-goodies-turn-report] [data-dtk-part="' + key + '"]');
+    if (part === null) continue;
+    // A figure takes the dot that introduces it with it, so no dot is left
+    // dangling in front of what comes next.
+    var sep = row.querySelector('[data-goodies-turn-report] [data-dtk-sep-for="' + key + '"]');
+    part.style.display = "none";
+    if (sep !== null) sep.style.display = "none";
+    tidy();
+    overflowing = crowded();
+  }
+  tidy();
+  // A dot only makes sense between two figures that are both still there.
+  var shown = row.querySelectorAll("[data-goodies-turn-report]");
+  for (var shownIndex = 0; shownIndex < shown.length; shownIndex += 1) {
+    var kids = shown[shownIndex].children;
+    var shownBefore = false;
+    var child;
+    for (child = 0; child < kids.length; child += 1) {
+      var kid = kids[child];
+      if (kid.hasAttribute("data-dtk-part")) {
+        if (kid.style.display !== "none") shownBefore = true;
+      } else if (!shownBefore) {
+        kid.style.display = "none";
+      }
+    }
+    var shownAfter = false;
+    for (child = kids.length - 1; child >= 0; child -= 1) {
+      var tail = kids[child];
+      if (tail.hasAttribute("data-dtk-part")) {
+        if (tail.style.display !== "none") shownAfter = true;
+      } else if (!shownAfter) {
+        tail.style.display = "none";
+      }
+    }
+  }
+  // Putting the empty slots away frees room the first pass could not use; the
+  // remaining figures get another chance to fit, never a figure back.
+  while (crowded() && index < REPORT_DROP_ORDER.length) {
+    var nextKey = REPORT_DROP_ORDER[index];
+    index += 1;
+    var nextPart = row.querySelector('[data-goodies-turn-report] [data-dtk-part="' + nextKey + '"]');
+    if (nextPart === null) continue;
+    var nextSep = row.querySelector('[data-goodies-turn-report] [data-dtk-sep-for="' + nextKey + '"]');
+    nextPart.style.display = "none";
+    if (nextSep !== null) nextSep.style.display = "none";
+    tidy();
+  }
+}
+
 function TurnReport(props) {
   if (typeof props.useChat !== "function") return null;
   return h(TurnReportBody, props);
@@ -2273,6 +2389,69 @@ function TurnReportBody(props) {
     timing.push({ key: "speed", text: t("report.speed", { value: shared.formatSpeed(speedTps) }) });
   }
 
+  // The figures give way when the row runs out of room. The room depends on the
+  // session title, the action icons and the clock, so it is measured here rather
+  // than guessed from the window: every figure is drawn, then the least useful
+  // ones are hidden until the row fits. The order is the one agreed for this:
+  // cache, input, output, then the duration, and the speed last.
+  // The figures fit the room they are given, and the room changes while the
+  // sidebar is dragged, so the row is watched rather than the window.
+  useLayoutEffect(
+    function () {
+      if (!cfg.turnReport || turnNumber === null) return undefined;
+      var selector = '[data-turn-tail="' + turnNumber + '"] [data-clock="end"]';
+      var row = document.querySelector(selector);
+      if (row === null) return undefined;
+      fitTurnReport(row);
+      if (typeof ResizeObserver !== "function") return undefined;
+      var frame = 0;
+      var lastWidth = row.clientWidth;
+      var observer = new ResizeObserver(function () {
+        if (frame !== 0) return;
+        frame = requestAnimationFrame(function () {
+          frame = 0;
+          var current = document.querySelector(selector);
+          if (current === null) return;
+          if (current.clientWidth === lastWidth) return;
+          lastWidth = current.clientWidth;
+          fitTurnReport(current);
+        });
+      });
+      observer.observe(row);
+      return function () {
+        observer.disconnect();
+        if (frame !== 0) cancelAnimationFrame(frame);
+      };
+    },
+    [cfg.turnReport, slotEpoch, turnNumber, report, usage, usageTarget, timeTarget]
+  );
+
+  // The separator belongs to the figure it introduces: dropping that figure has
+  // to drop its dot too, which CSS sibling rules cannot express.
+  var withSeparators = function (parts, side) {
+    var nodes = [];
+    for (var item = 0; item < parts.length; item += 1) {
+      if (item > 0) {
+        nodes.push(
+          h(
+            "span",
+            {
+              key: side + "-sep-" + parts[item].key,
+              className: "dtk-report-sep",
+              "data-dtk-sep-for": parts[item].key,
+              "aria-hidden": "true",
+            },
+            "·"
+          )
+        );
+      }
+      nodes.push(
+        h("span", { key: side + "-" + parts[item].key, className: "dtk-report-part", "data-dtk-part": parts[item].key }, parts[item].text)
+      );
+    }
+    return nodes;
+  };
+
   return h(
     React.Fragment,
     null,
@@ -2285,9 +2464,7 @@ function TurnReportBody(props) {
               "data-goodies-turn-report": "usage",
               "data-turn": String(turnNumber),
             },
-            breakdown.map(function (part) {
-              return h("span", { key: part.key, className: "dtk-report-part", "data-dtk-part": part.key }, part.text);
-            })
+            withSeparators(breakdown, "usage")
           ),
           usageTarget
         )
@@ -2301,9 +2478,7 @@ function TurnReportBody(props) {
               "data-goodies-turn-report": "timing",
               "data-turn": String(turnNumber),
             },
-            timing.map(function (part) {
-              return h("span", { key: part.key, className: "dtk-report-part", "data-dtk-part": part.key }, part.text);
-            })
+            withSeparators(timing, "timing")
           ),
           timeTarget
         )

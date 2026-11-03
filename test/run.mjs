@@ -55,25 +55,39 @@ equal("a broken node list is not fatal", shared.stepKey({ nodes: { values: () =>
   const missing = [...used].filter((name) => !declared.has(name));
   equal("every state hook used is declared", missing.join(","), "");
 }
-// -- the report fits a narrow window ----------------------------------------
+// -- the report fits the room it is given -----------------------------------
 
-// The figures sit on one line next to a pill and a clock. A flex item that
-// shrinks to nothing keeps painting its text, which is how the report used to
-// overlap its neighbours; it has to clip instead, and the least useful figures
-// have to step out before the row runs out of room.
+// The figures sit on one line next to a pill and a clock, and how much room is
+// left depends on the session title, the action icons and the clock. So the
+// report measures the row and drops figures in one fixed order until it fits;
+// the separators are drawn with the figures, so no dot is left behind.
 const TURN_REPORT_CSS = shared.CSS;
-const clientForWidth = await readFile(join(ROOT, "src", "client.js"), "utf8");
 check(
   "the report clips instead of painting over its neighbours",
   /\.dtk-slot\{[^}]*flex:0 1 auto[^}]*overflow:hidden/.test(TURN_REPORT_CSS) &&
     /\.dtk-report\{[^}]*min-width:0[^}]*overflow:hidden/.test(TURN_REPORT_CSS)
 );
-for (const part of ["cache", "in", "ttft", "total"]) {
-  check(`a narrow window drops ${part}`, TURN_REPORT_CSS.includes(`[data-dtk-part="${part}"]{display:none}`));
-}
+check("the separator is drawn by the report", TURN_REPORT_CSS.includes(".dtk-report-sep{"));
+check("no width rule hides a figure", !/data-dtk-part="[a-z]+"\]\{display:none\}/.test(TURN_REPORT_CSS));
+
+const reportSource = await readFile(join(ROOT, "src", "client.js"), "utf8");
+const orderMatch = reportSource.match(/var REPORT_DROP_ORDER = \[([^\]]+)\]/);
+equal(
+  "figures give way in the agreed order",
+  orderMatch ? orderMatch[1].replace(/["\s]/g, "") : "",
+  "cache,in,out,ttft,total,speed"
+);
 check(
-  "every report figure is tagged for the narrow rules",
-  (clientForWidth.match(/"data-dtk-part": part\.key/g) || []).length === 2
+  "figures are dropped because the row is full",
+  reportSource.includes("drawn[reportIndex].scrollWidth > drawn[reportIndex].clientWidth + 2") &&
+    reportSource.includes("part.style.display = \"none\"") &&
+    reportSource.includes('reportSlot.style.display = alive ? "" : "none"')
+);
+check(
+  "a dropped figure takes its dot with it",
+  reportSource.includes("withSeparators(breakdown") &&
+    reportSource.includes("[data-dtk-sep-for=") &&
+    reportSource.includes("new ResizeObserver")
 );
 
 // -- per-turn ledger key ----------------------------------------------------

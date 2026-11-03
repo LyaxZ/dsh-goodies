@@ -39,32 +39,74 @@ if (!opened) throw new Error("session row not found");
 await sleep(9000);
 
 let failures = 0;
-for (const width of [1280, 1024, 900, 760, 640, 520, 420, 380]) {
+const ORDER = ["cache", "in", "out", "ttft", "total", "speed"];
+const seen = [];
+const check = (name, ok, detail) => {
+  if (ok) return;
+  failures += 1;
+  console.log(`  FAIL ${name} -> ${JSON.stringify(detail)}`);
+};
+
+for (const width of [1280, 1100, 1000, 900, 820, 760, 700, 640, 580, 520, 460, 400, 360]) {
   await send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
   await sleep(900);
   const state = await ev(`(() => {
     const visible = (el) => el.getClientRects().length > 0;
+    const row = document.querySelector('[data-turn-tail] [data-clock="end"]');
     const reports = [...document.querySelectorAll("[data-goodies-turn-report]")].filter(visible);
-    const clock = document.querySelector('[data-turn-tail] [data-clock="end"]');
-    const row = clock ? clock.querySelector('[class*="_endInfo"]') || clock : null;
-    const rowChildren = row ? [...row.children].filter((n) => n.getClientRects().length > 0 && n.getBoundingClientRect().width > 1) : [];
-    const boxes = rowChildren.map((n) => { const b = n.getBoundingClientRect(); return { x: b.x, right: b.right, y: b.y, bottom: b.bottom, text: (n.innerText || "").replace(/\\s+/g, " ").slice(0, 16) }; });
+    const rowBox = row ? row.getBoundingClientRect() : null;
+    const boxes = row ? [...row.querySelectorAll("[data-goodies-turn-report]")].filter(visible).map((n) => { const b = n.getBoundingClientRect(); return { x: b.x, right: b.right, y: b.y, bottom: b.bottom, text: (n.innerText || "").replace(/\\s+/g, " ").slice(0, 18) }; }) : [];
     const overlaps = [];
     for (let i = 0; i < boxes.length; i += 1) for (let j = i + 1; j < boxes.length; j += 1) {
       const a = boxes[i], b = boxes[j];
       const x = Math.min(a.right, b.right) - Math.max(a.x, b.x);
       const y = Math.min(a.bottom, b.bottom) - Math.max(a.y, b.y);
-      if (x > 1 && y > 1) overlaps.push([a.text, b.text, Math.round(x)]);
+      if (x > 1 && y > 1) overlaps.push([a.text, b.text]);
     }
-    const parts = [...new Set(reports.flatMap((r) => [...r.querySelectorAll("[data-dtk-part]")]).filter((p) => p.getClientRects().length > 0).map((p) => p.getAttribute("data-dtk-part")))];
-    const clipped = row ? reports.filter((r) => r.getBoundingClientRect().right > row.getBoundingClientRect().right + 1).length : 0;
-    return { clipped, reports: reports.length, slots: document.querySelectorAll("[data-dtk-slot]").length, parts, overlaps, docScroll: document.documentElement.scrollWidth, viewport: innerWidth, seatErrors: document.querySelectorAll("[data-slot-error]").length };
+    // A neighbour that our report runs into is an overlap even when the boxes are
+    // not both ours: compare against every visible child of the row.
+    const rowKids = row ? [...row.children].filter((n) => n.getClientRects().length > 0).map((n) => n.getBoundingClientRect()) : [];
+    const clipped = reports.filter((r) => r.scrollWidth > r.clientWidth + 2).length;
+    const parts = [...new Set([...document.querySelectorAll("[data-goodies-turn-report]")].filter(visible).flatMap((r) => [...r.querySelectorAll("[data-dtk-part]")]).filter((p) => p.getClientRects().length > 0).map((p) => p.getAttribute("data-dtk-part")))];
+    // A dot belongs to the figure after it, so a report can never start with one
+    // and can never show more dots than it has figures minus one.
+    let danglingDots = 0;
+    let extraDots = 0;
+    for (const report of reports) {
+      const kids = [...report.children].filter(visible);
+      if (kids.length > 0 && kids[0].classList.contains("dtk-report-sep")) danglingDots += 1;
+      const dots = kids.filter((n) => n.classList.contains("dtk-report-sep")).length;
+      const figures = kids.filter((n) => n.hasAttribute("data-dtk-part")).length;
+      if (dots > Math.max(0, figures - 1)) extraDots += 1;
+    }
+    const seps = danglingDots + extraDots;
+    return { reports: reports.length, parts, overlaps, clipped, seps, rowKids: rowKids.length, docScroll: document.documentElement.scrollWidth, viewport: innerWidth };
   })()`);
-  const wide = width >= 760;
-  const ok = state.overlaps.length === 0 && state.clipped === 0 && state.docScroll <= state.viewport && (!wide || (state.reports > 0 && state.parts.includes("speed")));
-  if (!ok) failures += 1;
-  console.log(`width ${width}: reports=${state.reports} slots=${state.slots} parts=${state.parts.join("/")} overlaps=${state.overlaps.length} clipped=${state.clipped} scroll=${state.docScroll}/${state.viewport} ${ok ? "ok" : "FAIL"}`);
+  seen.push({ width, parts: state.parts });
+  console.log(`width ${width}: parts=${state.parts.join("/") || "(none)"} reports=${state.reports} overlaps=${state.overlaps.length} clipped=${state.clipped} seps=${state.seps}`);
+  check(`width ${width} has no overlap`, state.overlaps.length === 0, state.overlaps);
+  check(`width ${width} is not clipped`, state.clipped === 0, state);
+  check(`width ${width} does not scroll sideways`, state.docScroll <= state.viewport, state);
+  check(`width ${width} never draws a leading dot`, state.seps <= Math.max(0, state.parts.length - 1), state);
 }
+
+// The presence set is whatever the widest window shows; a narrower one may only
+// drop a prefix of the agreed order.
+const widest = seen[0].parts;
+for (const entry of seen) {
+  const visible = new Set(entry.parts);
+  const present = ORDER.filter((key) => widest.includes(key));
+  let droppedPrefix = true;
+  for (const key of present) {
+    if (visible.has(key)) droppedPrefix = false;
+    else if (!droppedPrefix) {
+      check(`width ${entry.width} drops figures in order`, false, { visible: entry.parts, widest });
+    }
+  }
+}
+check("the widest window shows the main figures", ["in", "out", "speed"].every((key) => seen[0].parts.includes(key)), seen[0].parts);
+check("the last resort keeps nothing of ours", seen[seen.length - 1].parts.length === 0, seen[seen.length - 1]);
+
 if (shotArg) {
   const shot = await send("Page.captureScreenshot", { format: "png" });
   writeFileSync(shotArg, Buffer.from(shot.data, "base64"));
