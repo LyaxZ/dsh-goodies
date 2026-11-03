@@ -2099,6 +2099,31 @@ function TurnReportBody(props) {
     },
     [nodes, turn]
   );
+  // A resize makes DSH re-render the footer, which can drop the slots we put
+  // there; bumping this re-attaches them once the layout settles.
+  var slotEpochState = useState(0);
+  var slotEpoch = slotEpochState[0];
+  var bumpSlotEpoch = slotEpochState[1];
+  var slotRetry = useRef(0);
+  useEffect(
+    function () {
+      var timer = null;
+      var onResize = function () {
+        if (timer !== null) clearTimeout(timer);
+        timer = setTimeout(function () {
+          timer = null;
+          bumpSlotEpoch(function (value) { return value + 1; });
+        }, 180);
+      };
+      window.addEventListener("resize", onResize);
+      return function () {
+        window.removeEventListener("resize", onResize);
+        if (timer !== null) clearTimeout(timer);
+      };
+    },
+    []
+  );
+
   var usageTargetState = useState(null);
   var usageTarget = usageTargetState[0];
   var setUsageTarget = usageTargetState[1];
@@ -2127,8 +2152,17 @@ function TurnReportBody(props) {
       if (root === null) {
         setUsageTarget(null);
         setTimeTarget(null);
+        // The store can publish a turn before its footer is on screen. Retry a
+        // few times instead of waiting for a resize that may never come.
+        if (slotRetry.current < 12) {
+          slotRetry.current += 1;
+          setTimeout(function () {
+            bumpSlotEpoch(function (value) { return value + 1; });
+          }, 150);
+        }
         return;
       }
+      slotRetry.current = 0;
       var info = root.querySelector('[class*="_endInfo"]') || root;
       var usageButton = info.querySelector('[class*="_trigger"]');
       var timeEl = info.querySelector('[class*="_timeEnd"]');
@@ -2160,7 +2194,7 @@ function TurnReportBody(props) {
         setTimeTarget(fallback);
       }
     },
-    [cfg.turnReport, report, usage, turnNumber, usageTarget, timeTarget]
+    [cfg.turnReport, report, usage, turnNumber, usageTarget, timeTarget, slotEpoch]
   );
 
   if (!cfg.turnReport || turnNumber === null) return null;
@@ -2252,7 +2286,7 @@ function TurnReportBody(props) {
               "data-turn": String(turnNumber),
             },
             breakdown.map(function (part) {
-              return h("span", { key: part.key, className: "dtk-report-part" }, part.text);
+              return h("span", { key: part.key, className: "dtk-report-part", "data-dtk-part": part.key }, part.text);
             })
           ),
           usageTarget
@@ -2268,7 +2302,7 @@ function TurnReportBody(props) {
               "data-turn": String(turnNumber),
             },
             timing.map(function (part) {
-              return h("span", { key: part.key, className: "dtk-report-part" }, part.text);
+              return h("span", { key: part.key, className: "dtk-report-part", "data-dtk-part": part.key }, part.text);
             })
           ),
           timeTarget

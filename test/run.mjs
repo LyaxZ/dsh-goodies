@@ -55,6 +55,27 @@ equal("a broken node list is not fatal", shared.stepKey({ nodes: { values: () =>
   const missing = [...used].filter((name) => !declared.has(name));
   equal("every state hook used is declared", missing.join(","), "");
 }
+// -- the report fits a narrow window ----------------------------------------
+
+// The figures sit on one line next to a pill and a clock. A flex item that
+// shrinks to nothing keeps painting its text, which is how the report used to
+// overlap its neighbours; it has to clip instead, and the least useful figures
+// have to step out before the row runs out of room.
+const TURN_REPORT_CSS = shared.CSS;
+const clientForWidth = await readFile(join(ROOT, "src", "client.js"), "utf8");
+check(
+  "the report clips instead of painting over its neighbours",
+  /\.dtk-slot\{[^}]*flex:0 1 auto[^}]*overflow:hidden/.test(TURN_REPORT_CSS) &&
+    /\.dtk-report\{[^}]*min-width:0[^}]*overflow:hidden/.test(TURN_REPORT_CSS)
+);
+for (const part of ["cache", "in", "ttft", "total"]) {
+  check(`a narrow window drops ${part}`, TURN_REPORT_CSS.includes(`[data-dtk-part="${part}"]{display:none}`));
+}
+check(
+  "every report figure is tagged for the narrow rules",
+  (clientForWidth.match(/"data-dtk-part": part\.key/g) || []).length === 2
+);
+
 // -- per-turn ledger key ----------------------------------------------------
 
 // The reading belongs to a turn, not to a step: every model call of one answer
