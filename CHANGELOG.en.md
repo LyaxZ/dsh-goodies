@@ -2,6 +2,12 @@
 
 Notable changes to **dsh-goodies** land here. Each entry is compared against the previous release only; internal iteration stays out. The Chinese edition lives in [CHANGELOG.md](CHANGELOG.md).
 
+## [0.1.12] - 2026-11-03
+
+### Fixed
+
+- **The turn report overlapped its neighbours in a narrow window**: the less important figures now step out as room runs short, so what remains no longer runs into the usage pill and the clock.
+
 ## [0.1.11] - 2026-10-30
 
 ### Fixed
