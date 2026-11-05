@@ -48,6 +48,24 @@ var zh = {
   "report.cachedUnknown": "缓存 —",
   "report.total": "总用时 {value}",
   "report.speed": "{value} tok/s",
+  "report.peak": "峰值",
+  "report.average": "平均",
+  "report.perSecond": "每秒速度",
+  "report.speedTitle": "速度",
+  "report.timeTitle": "时间构成",
+  "report.waiting": "首 token 时间",
+  "report.reasoning": "模型思考",
+  "report.reply": "模型回复",
+  "report.modelWait": "模型等待",
+  "report.toolArgs": "工具参数",
+  "report.thinking": "思考",
+  "report.tool": "工具执行",
+  "report.toolDetail": "工具明细",
+  "report.generate": "生成",
+  "report.other": "其他",
+  "report.noSeries": "这一回合没有逐秒记录",
+  "report.noPhases": "没有可拆分的时间",
+  "report.openHint": "点击查看详情",
   "report.tokens": "{value} tok",
   "notify.title": "本轮完成",
   "notify.body": "「{title}」已完成 · {duration}",
@@ -60,6 +78,13 @@ var zh = {
   "settings.live": "实时 tok/s",
   "settings.liveDesc": "在回答下方的运行状态旁显示实时速度、累计速度、动态柱条和折线。",
   "settings.report": "每条回答成绩单",
+  "settings.motionFeature": "界面动画增强",
+  "settings.motion": "行动画",
+  "settings.motionDesc": "回合结束时让成绩单淡入并轻微上移。开启后始终生效，不受系统「减少动态效果」影响。",
+  "settings.cardMotion": "卡片动效",
+  "settings.hudMotion": "HUD 波形动效",
+  "settings.hudMotionDesc": "实时速度波形在数据变化时平滑涨落，而不是瞬间跳变。",
+  "settings.cardMotionDesc": "打开或关闭速度、时间卡片时淡入淡出。",
   "settings.reportDesc": "用量右边显示输入·输出·缓存，时间右边显示总用时和输出速度。",
   "settings.notify": "完成通知",
   "settings.notifyDesc": "每一轮结束时发系统通知并闪烁标题，页面在前台也会提醒。",
@@ -72,7 +97,7 @@ var zh = {
   "settings.permission.denied": "浏览器已拒绝，请在站点设置里恢复",
   "settings.permission.default": "未授权",
   "settings.permission.request": "请求权限",
-  "settings.permission.hint": "授权后才会弹系统通知，被拒时只闪烁标题",
+  "settings.permission.hint": "授权后才会弹系统通知，被拒时只闪烁标题。",
   "settings.notify.watching": "正在监听 {total} 个会话 · 当前页面{page}",
   "settings.notify.pageRunning": "正在运行",
   "settings.notify.pageIdle": "空闲",
@@ -80,7 +105,7 @@ var zh = {
   "settings.liveFeature": "实时读数",
   "settings.reportFeature": "每条回答成绩单",
   "settings.notifyFeature": "完成通知",
-  "settings.notifySummary": "通知 {notify} · 提示音 {sound}",
+  "settings.notifySummary": "通知 {notify} · 提示音{sound}",
   "settings.on": "开启",
   "settings.off": "关闭",
   "settings.permission.unsupported": "当前浏览器不支持",
@@ -105,6 +130,24 @@ var en = {
   "report.cachedUnknown": "cached —",
   "report.total": "total {value}",
   "report.speed": "{value} tok/s",
+  "report.peak": "peak",
+  "report.average": "average",
+  "report.perSecond": "per second",
+  "report.speedTitle": "Speed",
+  "report.timeTitle": "Time split",
+  "report.waiting": "first token",
+  "report.reasoning": "thinking",
+  "report.reply": "writing",
+  "report.modelWait": "model wait",
+  "report.toolArgs": "tool args",
+  "report.thinking": "thinking",
+  "report.tool": "tools",
+  "report.toolDetail": "breakdown",
+  "report.generate": "writing",
+  "report.other": "other",
+  "report.noSeries": "No per-second record for this turn",
+  "report.noPhases": "Nothing to split",
+  "report.openHint": "Click for details",
   "report.tokens": "{value} tok",
   "notify.title": "Turn complete",
   "notify.body": "\"{title}\" finished · {duration}",
@@ -117,6 +160,13 @@ var en = {
   "settings.live": "Live tok/s",
   "settings.liveDesc": "Shows live and cumulative speed, animated bars, and a sparkline beside the running status under the answer.",
   "settings.report": "Per-answer report",
+  "settings.motionFeature": "Motion enhancements",
+  "settings.motion": "row motion",
+  "settings.motionDesc": "Fade the report in with a short rise when a turn ends. This always runs while enabled, regardless of the system reduce-motion setting.",
+  "settings.cardMotion": "card motion",
+  "settings.hudMotion": "HUD motion",
+  "settings.hudMotionDesc": "The live speed bars rise and fall smoothly instead of jumping.",
+  "settings.cardMotionDesc": "Fade the speed and time cards in and out.",
   "settings.reportDesc": "Shows input · output · cached next to usage, and total time plus output speed next to the answer's time.",
   "settings.notify": "Completion notification",
   "settings.notifyDesc": "Notify and flash the title when a turn finishes, even while the page is in front.",
@@ -189,6 +239,211 @@ var workspaceService = null;
 var remoteSession = null;
 var activeSessionId = null;
 var liveTurnSpeeds = new Map();
+/** Per turn: the last seconds of speed, for the report's popover. */
+var enteredTurns = new Set();
+var latestRowMotion = true;
+var rowHoverInstalled = false;
+var enteredRows = new Set();
+function installRowHoverMotion() {
+  if (rowHoverInstalled) return;
+  rowHoverInstalled = true;
+  document.addEventListener(
+    "pointerover",
+    function (event) {
+      if (!latestRowMotion || !event.target || !event.target.closest) return;
+      var container = event.target.closest('[data-actions-reveal="hover"]');
+      if (container === null) return;
+      if (event.relatedTarget && container.contains(event.relatedTarget)) return;
+      var row = container.querySelector('[class*="_actions"]');
+      if (row && typeof row.animate === "function") {
+        // A reused row may still hold the end state of its last exit.
+        if (typeof row.getAnimations === "function") {
+          row.getAnimations().forEach(function (animation) {
+            animation.cancel();
+          });
+        }
+        row.animate(
+          [
+            { opacity: 0, transform: "translateY(5px)" },
+            { opacity: 1, transform: "translateY(0)" },
+          ],
+          { duration: 190, easing: "cubic-bezier(.2,.8,.3,1)" }
+        );
+      }
+    },
+    true
+  );
+  document.addEventListener(
+    "pointerout",
+    function (event) {
+      if (!latestRowMotion || !event.target || !event.target.closest) return;
+      var container = event.target.closest('[data-actions-reveal="hover"]');
+      if (container === null) return;
+      if (event.relatedTarget && container.contains(event.relatedTarget)) return;
+      var row = container.querySelector('[class*="_actions"]');
+      if (row && typeof row.animate === "function") {
+        if (typeof row.getAnimations === "function") {
+          row.getAnimations().forEach(function (animation) {
+            animation.cancel();
+          });
+        }
+        row.animate(
+          [
+            { opacity: 1, transform: "translateY(0)" },
+            { opacity: 0, transform: "translateY(5px)" },
+          ],
+          { duration: 150, easing: "ease-in", fill: "forwards" }
+        );
+      }
+    },
+    true
+  );
+}
+var liveTurnSeries = new Map();
+/** Per turn: what the host measured, which survives a throttled page. */
+var liveTurnStats = new Map();
+/** Where the per-stream stats survive a page reload. */
+var TIMED_STORE_KEY = "dtk-goodies/timed";
+/** Per turn and stream: the chunk-kind timings, summed when the report opens. */
+var liveTurnTimed = new Map();
+
+/** Remember one stream's timings for its turn; returns nothing. */
+function rememberTurnTimed(ledgerKey, streamId, entry) {
+  if (!entry || !entry.timed || typeof entry.timed !== "object") return;
+  var table = liveTurnTimed.get(ledgerKey);
+  if (!table) {
+    table = new Map();
+    liveTurnTimed.set(ledgerKey, table);
+  }
+  if (table.has(streamId)) return;
+  table.set(streamId, {
+    reasoning: Number(entry.timed.reasoning) || 0,
+    text: Number(entry.timed.text) || 0,
+    toolArgs: Number(entry.timed.toolArgs) || 0,
+    startedAt: Number(entry.startedAt) || 0,
+    firstAt: Number(entry.firstAt) || 0,
+    lastAt: Number(entry.lastAt) || 0,
+    usage: Number(entry.usage) || 0,
+    series: Array.isArray(entry.series) ? entry.series.slice() : [],
+  });
+  try {
+    var store = JSON.parse(window.localStorage.getItem(TIMED_STORE_KEY) || "{}");
+    store[ledgerKey] = store[ledgerKey] || {};
+    store[ledgerKey][streamId] = {
+      reasoning: Number(entry.timed.reasoning) || 0,
+      text: Number(entry.timed.text) || 0,
+      toolArgs: Number(entry.timed.toolArgs) || 0,
+      startedAt: Number(entry.startedAt) || 0,
+      firstAt: Number(entry.firstAt) || 0,
+      lastAt: Number(entry.lastAt) || 0,
+      usage: Number(entry.usage) || 0,
+      series: Array.isArray(entry.series) ? entry.series.slice() : [],
+    };
+    var keys = Object.keys(store);
+    while (keys.length > 30) {
+      delete store[keys[0]];
+      keys.shift();
+    }
+    window.localStorage.setItem(TIMED_STORE_KEY, JSON.stringify(store));
+  } catch (error) {
+    // Storage can be unavailable; the live map still works.
+  }
+  if (liveTurnTimed.size > 200) {
+    var oldest = liveTurnTimed.keys().next().value;
+    if (oldest !== undefined) liveTurnTimed.delete(oldest);
+  }
+}
+
+/** Sum the streams of one turn, so a tool step cannot erase earlier thinking. */
+function aggregateTurnTimed(ledgerKey) {
+  var table = liveTurnTimed.get(ledgerKey);
+  if (!table || table.size === 0) {
+    try {
+      var stored = JSON.parse(window.localStorage.getItem(TIMED_STORE_KEY) || "{}")[ledgerKey];
+      if (stored) {
+        table = new Map();
+        Object.keys(stored).forEach(function (streamId) {
+          table.set(Number(streamId), stored[streamId]);
+        });
+        liveTurnTimed.set(ledgerKey, table);
+      }
+    } catch (error) {
+      // Ignore storage failures.
+    }
+  }
+  if (!table || table.size === 0) return null;
+  var out = { reasoning: 0, text: 0, toolArgs: 0, modelWait: 0, usage: 0, firstHead: 0, startedAt: 0, firstAt: 0, lastAt: 0, series: [] };
+  var streams = [];
+  table.forEach(function (entry) {
+    streams.push(entry);
+    out.reasoning += entry.reasoning;
+    out.usage += entry.usage || 0;
+    if (entry.startedAt > 0 && entry.firstAt > entry.startedAt) {
+      var head = entry.firstAt - entry.startedAt;
+      if (out.firstHead === 0 || entry.startedAt < out.startedAt) out.firstHead = head;
+    }
+    // Each model call thinks (and queues) before its first token; that head is
+    // the honest "thinking" share, since the reasoning stream itself is short.
+    if (entry.startedAt > 0 && entry.firstAt > entry.startedAt) out.modelWait += entry.firstAt - entry.startedAt;
+    out.text += entry.text;
+    out.toolArgs += entry.toolArgs;
+    if (entry.startedAt > 0 && (out.startedAt === 0 || entry.startedAt < out.startedAt)) out.startedAt = entry.startedAt;
+    if (entry.firstAt > 0 && (out.firstAt === 0 || entry.firstAt < out.firstAt)) out.firstAt = entry.firstAt;
+    if (entry.lastAt > out.lastAt) out.lastAt = entry.lastAt;
+  });
+  // Lay every stream on one timeline: each model call contributes its own
+  // seconds, so a long turn shows several groups of bars, not just the last.
+  streams.sort(function (left, right) {
+    return (left.startedAt || 0) - (right.startedAt || 0);
+  });
+  var turnStart = 0;
+  for (var streamIndex = 0; streamIndex < streams.length; streamIndex += 1) {
+    var started = streams[streamIndex].startedAt || 0;
+    if (started > 0 && (turnStart === 0 || started < turnStart)) turnStart = started;
+  }
+  var combined = [];
+  for (var streamIndex2 = 0; streamIndex2 < streams.length; streamIndex2 += 1) {
+    var stream = streams[streamIndex2];
+    var series = Array.isArray(stream.series) ? stream.series : [];
+    if (series.length === 0) continue;
+    var offset = turnStart > 0 && stream.startedAt > 0 ? Math.max(0, Math.round((stream.startedAt - turnStart) / 1000)) : combined.length;
+    for (var second = 0; second < series.length; second += 1) {
+      var bucket = offset + second;
+      while (combined.length <= bucket && combined.length < 300) combined.push(0);
+      if (bucket < combined.length) combined[bucket] += Number(series[second]) || 0;
+    }
+  }
+  while (combined.length > 0 && combined[combined.length - 1] === 0) combined.pop();
+  out.series = combined;
+  // The host's per-second buckets follow the chunk sizes, which makes one tall
+  // spike and long flat runs. Spreading each call's tokens over its own span
+  // gives the shape a reader expects: a rise, a wavy plateau, a fall.
+  var chart = [];
+  var streamedMs = 0;
+  for (var streamIndex3 = 0; streamIndex3 < streams.length; streamIndex3 += 1) {
+    var item = streams[streamIndex3];
+    var usedTokens = Number(item.usage) || 0;
+    if (!(item.lastAt > item.firstAt)) continue;
+    // A block response arrives in one tick, so its wall span says nothing about
+    // how long it took to write; the host's streamed time does.
+    var timedMs = (Number(item.reasoning) || 0) + (Number(item.text) || 0) + (Number(item.toolArgs) || 0);
+    var spanMs = Math.max(item.lastAt - item.firstAt, timedMs);
+    var seconds2 = Math.max(1, Math.round(spanMs / 1000));
+    streamedMs += seconds2 * 1000;
+    if (usedTokens <= 0) continue;
+    var rate = usedTokens / seconds2;
+    var offset2 = turnStart > 0 && item.startedAt > 0 ? Math.max(0, Math.round((item.startedAt - turnStart) / 1000)) : chart.length;
+    for (var slot = 0; slot < seconds2; slot += 1) {
+      var at = offset2 + slot;
+      while (chart.length <= at && chart.length < 300) chart.push(0);
+      if (at < chart.length) chart[at] = Math.max(chart[at], rate);
+    }
+  }
+  while (chart.length > 0 && chart[chart.length - 1] === 0) chart.pop();
+  out.chart = chart;
+  out.streamedMs = streamedMs;
+  return out;
+}
 /** Per turn: the highest total shown so far, and when its clock started. */
 var liveTurnStart = new Map();
 
@@ -554,6 +809,27 @@ var effortT = fallbackT;
  * @param {MutationRecord[]} records - the batch the observer delivered.
  * @returns {boolean} whether any element or attribute changed.
  */
+/**
+ * Announce element-level DOM changes so a report can find a footer that
+ * appeared after it mounted. Text-only batches (streaming) are ignored.
+ */
+function installFooterWatch() {
+  if (typeof document === "undefined" || typeof MutationObserver !== "function") return function () {};
+  var scheduled = false;
+  var observer = new MutationObserver(function (records) {
+    if (scheduled || !hasElementMutation(records)) return;
+    scheduled = true;
+    requestAnimationFrame(function () {
+      scheduled = false;
+      window.dispatchEvent(new CustomEvent("dtk:footer"));
+    });
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+  return function () {
+    observer.disconnect();
+  };
+}
+
 function hasElementMutation(records) {
   for (var index = 0; index < records.length; index += 1) {
     var record = records[index];
@@ -1605,7 +1881,7 @@ function liveEstimate(snapshot) {
  */
 var liveTurnDecode = new Map();
 
-function rememberStreamDecode(turnKey, streamId, tokens, spanMs) {
+function rememberStreamDecode(turnKey, streamId, tokens, spanMs, series, timed) {
   if (turnKey === "" || !(streamId > 0)) return;
   var table = liveTurnDecode.get(turnKey);
   if (!table) {
@@ -1618,7 +1894,22 @@ function rememberStreamDecode(turnKey, streamId, tokens, spanMs) {
   }
   var seen = table.get(streamId) || { tokens: 0, ms: 0 };
   if (tokens > seen.tokens) seen.tokens = tokens;
-  if (spanMs > seen.ms) seen.ms = spanMs;
+  // Speed is tokens over the seconds that produced tokens, not over the wall
+  // span (which counts every pause and every tool call).
+  var activeMs = spanMs;
+  if (timed && typeof timed === "object") {
+    var streamedMs = (Number(timed.reasoning) || 0) + (Number(timed.text) || 0) + (Number(timed.toolArgs) || 0);
+    if (streamedMs > 0) activeMs = streamedMs;
+  } else if (Array.isArray(series)) {
+    var active = 0;
+    for (var seriesIndex = 0; seriesIndex < series.length; seriesIndex += 1) if (series[seriesIndex] > 0) active += 1;
+    if (active > 0) activeMs = active * 1000;
+  }
+  // An early poll can only see the wall span; once the per-second series is
+  // known it replaces that span instead of losing to it.
+  var fromSeries = activeMs !== spanMs;
+  if (fromSeries) seen.ms = activeMs;
+  else if (activeMs > seen.ms) seen.ms = activeMs;
   table.set(streamId, seen);
 }
 
@@ -1655,6 +1946,10 @@ function liveDecodeSpeed(turnKey) {
 }
 
 function useRemoteLive(sessionId, turnKey, enabled) {
+  // The turn tail does not always carry a session id; the live session is the
+  // same one the report uses, so both keys must resolve the same way.
+  if (sessionId === undefined || sessionId === null || String(sessionId) === "") sessionId = activeSessionId;
+  sessionId = String(sessionId);
   var state = useState({ tokens: 0, startedAt: 0, ok: null });
   var live = state[0];
   var setLive = state[1];
@@ -1709,7 +2004,24 @@ function useRemoteLive(sessionId, turnKey, enabled) {
             // The ledger is keyed by turn, not by step: the model calls of one
             // answer add up, so a tool step in between cannot drop the total.
             var ledgerKey = shared.turnLedgerKey(sessionId, turnRef.current);
-            rememberStreamDecode(ledgerKey, streamId, current, span);
+            // The host's own per-second series and timestamps; they keep
+            // arriving even if the page was hidden while the turn ran.
+            var hostSeries = Array.isArray(entry.series) ? entry.series.slice() : [];
+            rememberStreamDecode(ledgerKey, streamId, current, span, hostSeries, entry.timed);
+            rememberTurnTimed(ledgerKey, streamId, entry);
+            if (hostSeries.length > 0 || firstAt > 0 || lastAt > 0) {
+              liveTurnStats.set(ledgerKey, {
+                series: hostSeries,
+                startedAt: entry.startedAt || 0,
+                firstAt: firstAt,
+                lastAt: lastAt,
+                timed: entry.timed && typeof entry.timed === "object" ? entry.timed : null,
+              });
+              if (liveTurnStats.size > 200) {
+                var oldestStats = liveTurnStats.keys().next().value;
+                if (oldestStats !== undefined) liveTurnStats.delete(oldestStats);
+              }
+            }
             var total = liveTurnTokens(ledgerKey);
             // Publishing an identical object would re-render the HUD on every
             // poll while nothing grows, which is most of a tool call.
@@ -1811,8 +2123,16 @@ function LiveSpeedBody(props) {
   var startedAt = useRef(0);
   var lastSpeed = useRef(0);
   var lastTokenCount = useRef(0);
+  var latestCount = useRef(0);
+  var completedTokens = useRef(0);
+  var lastSeenCount = useRef(0);
+  var bucketAt = useRef(0);
+  var bucketCount = useRef(0);
   var lastTokenSeenAt = useRef(0);
   var samplesRef = useRef([]);
+  // One reading per second for the little waveform beside the reading.
+  var seriesRef = useRef([]);
+  var seriesBucket = useRef(0);
   var wasRunning = useRef(false);
   // When the run row last disappeared. A short gap inside one answer (a tool
   // call, a repaint) must not blank the total the way a finished turn does.
@@ -1863,6 +2183,12 @@ function LiveSpeedBody(props) {
         lastTokenCount.current = 0;
         lastTokenSeenAt.current = 0;
         samplesRef.current.length = 0;
+        seriesRef.current.length = 0;
+    bucketAt.current = 0;
+    bucketCount.current = 0;
+    completedTokens.current = 0;
+    lastSeenCount.current = 0;
+        seriesBucket.current = 0;
         wasRunning.current = false;
         setDisplay(0);
         return;
@@ -1934,6 +2260,11 @@ function LiveSpeedBody(props) {
     function () {
       if (!running || !cfg.liveSpeed) return;
       var count = Math.round(tokens);
+  if (count < lastSeenCount.current) {
+    completedTokens.current += lastSeenCount.current;
+  }
+  lastSeenCount.current = count;
+  latestCount.current = completedTokens.current + count;
       if (count <= 0) return;
       var nowMs = now;
       // A short rolling window over the real deltas: it follows the stream the
@@ -1967,6 +2298,57 @@ function LiveSpeedBody(props) {
       }
     },
     [running, now, tokens, cfg.liveSpeed]
+  );
+
+  // One bar per second: the reading is bucketed so a quick stream still draws a
+  // readable shape, and the series is kept for the report that opens later.
+  useEffect(
+    function () {
+      if (!running || !cfg.liveSpeed) return;
+      var bucket = Math.floor(now / 1000);
+      if (bucket === seriesBucket.current) return;
+      seriesBucket.current = bucket;
+      var series = seriesRef.current;
+      // Back to the instantaneous reading: the interval average depended on a
+      // token counter that resets per step, which swallowed whole segments.
+      var countNow = latestCount.current;
+      if (bucketAt.current === 0) {
+        bucketAt.current = now;
+        bucketCount.current = countNow;
+        return;
+      }
+      var elapsed = (now - bucketAt.current) / 1000;
+      var delta = countNow - bucketCount.current;
+      bucketAt.current = now;
+      bucketCount.current = countNow;
+      var bucketSpeed = delta > 0 && elapsed > 0 ? delta / elapsed : 0;
+      if (bucketSpeed > 400) bucketSpeed = 400;
+      series.push(bucketSpeed);
+
+      while (series.length > 60) series.shift();
+      if (key !== "") {
+        var id = props.sessionId === undefined ? "" : String(props.sessionId);
+        var ledgerKey = shared.turnLedgerKey(id, key.split(":")[0]);
+        liveTurnSeries.set(ledgerKey, series.slice());
+    try {
+      var storedSeries = JSON.parse(window.localStorage.getItem("dtk-goodies/series") || "{}");
+      storedSeries[ledgerKey] = series.slice();
+      var seriesKeys = Object.keys(storedSeries);
+      while (seriesKeys.length > 30) {
+        delete storedSeries[seriesKeys[0]];
+        seriesKeys.shift();
+      }
+      window.localStorage.setItem("dtk-goodies/series", JSON.stringify(storedSeries));
+    } catch (error) {
+      // Storage can be unavailable; the in-memory samples still work.
+    }
+        if (liveTurnSeries.size > 200) {
+          var oldestSeries = liveTurnSeries.keys().next().value;
+          if (oldestSeries !== undefined) liveTurnSeries.delete(oldestSeries);
+        }
+      }
+    },
+    [running, now, display, cfg.liveSpeed, key, props.sessionId]
   );
 
   // The reading is read from the per-turn ledger while rendering, so a switch
@@ -2016,10 +2398,51 @@ function LiveSpeedBody(props) {
   var shownTotal = seenTurn.current ? Math.min(liveTurnTokens(lastTurnKey.current), 10000000) : 0;
   var totalElapsed = startedAt.current > 0 ? now - startedAt.current : 0;
 
+  var speedText = shared.formatSpeed(speed);
+  var totalText = shared.formatTokens(shownTotal) || "";
+  var series = seriesRef.current;
+  var seriesMax = 1;
+  var slots = 15;
+  var padded = [];
+  var padCount = Math.max(0, slots - series.length);
+  for (var padIndex = 0; padIndex < padCount; padIndex += 1) padded.push(0);
+  for (var seriesIndex = 0; seriesIndex < series.length; seriesIndex += 1) {
+    var reading = series[seriesIndex];
+    padded.push(reading);
+    if (reading > seriesMax) seriesMax = reading;
+  }
+  // The newest reading enters on the left and drifts right as the seconds pass.
+  // Both readings grow leftwards into the wave: every character they gain is one
+  // cell the wave gives up, so the row keeps its width and the star never moves.
+  var slots = 20;
+  var extra = Math.min(10, Math.max(0, speedText.length - 1) + Math.max(0, totalText.length - 1));
+  var newestFirst = series.slice().reverse().slice(0, 20);
+  var visible = newestFirst.slice();
+  while (visible.length < slots) visible.push(0);
+  var bars = h(
+    "span",
+    {
+      className: "dtk-live-wave dtk-live-wave2",
+      "aria-hidden": "true",
+      style: { width: "calc(78px - " + Math.min(6, extra) + "ch)", minWidth: "44px" },
+    },
+    visible.map(function (value, index) {
+      var height = value > 0 ? Math.max(2, Math.round((value / seriesMax) * 14)) : 2;
+      var classes = "dtk-live-bar" + (value > 0 ? "" : " is-empty") + (index === 0 ? " is-last" : "");
+      return h("span", {
+        key: String(index),
+        className: classes,
+        style: {
+          height: height + "px",
+          transition: "height .3s cubic-bezier(.2,.8,.3,1), opacity .3s ease",
+        },
+      });
+    })
+  );
   var pill = h(
     "span",
     {
-      className: "dtk-live",
+      className: "dtk-live" + (cfg.hudMotion === false ? "" : " dtk-live-motion"),
       "data-goodies-live-speed": "",
       "data-live-now": shared.formatSpeed(speed),
       "data-live-total": String(shownTotal),
@@ -2036,17 +2459,18 @@ function LiveSpeedBody(props) {
       // motion, which used to make the breathing invisible.
       style: { opacity: shared.starOpacity(now).toFixed(3) },
     }),
+    bars,
     h(
       "span",
       { className: "dtk-live-metric is-now" },
-      h("span", { className: "dtk-live-value" }, shared.formatSpeed(speed)),
+      h("span", { className: "dtk-live-value", style: { width: speedText.length + "ch" } }, speedText),
       h("span", { className: "dtk-live-unit" }, "tok/s")
     ),
     h("span", { className: "dtk-live-dot-sep", "aria-hidden": "true" }, "·"),
     h(
       "span",
       { className: "dtk-live-metric is-total" },
-      h("span", { className: "dtk-live-value" }, shared.formatTokens(shownTotal)),
+      h("span", { className: "dtk-live-value", style: { width: totalText.length + "ch" } }, totalText),
       h("span", { className: "dtk-live-unit" }, "tokens")
     )
   );
@@ -2063,7 +2487,11 @@ function LiveSpeedBody(props) {
  * native usage pill is left. Then the turn duration, and finally the speed, so
  * the row ends up holding nothing but what DSH itself draws.
  */
-var REPORT_DROP_ORDER = ["cache", "in", "out", "ttft", "total", "speed"];
+// The usage figures describe one block: they leave together, never one by one.
+var REPORT_USAGE_GROUP = ["in", "out", "cache"];
+// Every figure keeps its place: when the row is tight the blocks share the width
+  // evenly instead of hiding one by one, and the pill stays clickable.
+var REPORT_DROP_ORDER = [];
 
 /**
  * Hide figures until this turn's footer fits the room it has been given.
@@ -2074,7 +2502,30 @@ var REPORT_DROP_ORDER = ["cache", "in", "out", "ttft", "total", "speed"];
  * figures go away one by one while the sidebar is being dragged.
  * @param {Element} row - the footer row of one finished turn.
  */
+var lastFitAt = 0;
+var pendingFitRow = null;
+var pendingFitTimer = null;
 function fitTurnReport(row) {
+  if (row === null || row === undefined) return;
+  // Coalesce bursts: a skipped call is replayed once, never dropped, or the row
+  // would stay unmeasured and nothing would give way.
+  var fitNow = Date.now();
+  if (fitNow - lastFitAt < 120) {
+    pendingFitRow = row;
+    if (pendingFitTimer === null) {
+      pendingFitTimer = setTimeout(function () {
+        pendingFitTimer = null;
+        var next = pendingFitRow;
+        pendingFitRow = null;
+        if (next !== null) fitTurnReport(next);
+      }, 120 - (fitNow - lastFitAt) + 1);
+    }
+    return;
+  }
+  lastFitAt = fitNow;
+  runFit(row);
+}
+function runFit(row) {
   if (row === null || row === undefined) return;
   var reports = row.querySelectorAll("[data-goodies-turn-report]");
   var parts = row.querySelectorAll("[data-goodies-turn-report] [data-dtk-part]");
@@ -2098,14 +2549,28 @@ function fitTurnReport(row) {
   var crowded = function () {
     var drawn = row.querySelectorAll("[data-goodies-turn-report]");
     for (var reportIndex = 0; reportIndex < drawn.length; reportIndex += 1) {
-      if (drawn[reportIndex].style.display === "none") continue;
-      if (drawn[reportIndex].scrollWidth > drawn[reportIndex].clientWidth + 2) return true;
+      var report = drawn[reportIndex];
+      if (report.style.display === "none") continue;
+      // The hover pill overhangs the text by design; measure without it.
+      report.classList.add("dtk-measuring");
+      var scroll = report.scrollWidth;
+      var client = report.clientWidth;
+      report.classList.remove("dtk-measuring");
+      if (scroll > client + 2) return true;
     }
     return false;
   };
   // A report with nothing left in it is put away together with its slot: an
   // empty slot still costs the row's gap on both sides, which pushed the usage
   // pill and the clock apart for no reason.
+  var restartEntrance = function (report) {
+    var motion = report.getAttribute("data-dtk-motion");
+    if (motion !== "on" || typeof report.classList === "undefined") return;
+    report.classList.remove("dtk-enter");
+    // A forced reflow makes the animation start again on the next frame.
+    void report.offsetWidth;
+    report.classList.add("dtk-enter");
+  };
   var tidy = function () {
     var drawn = row.querySelectorAll("[data-goodies-turn-report]");
     for (var reportIndex = 0; reportIndex < drawn.length; reportIndex += 1) {
@@ -2115,7 +2580,9 @@ function fitTurnReport(row) {
       for (var figureIndex = 0; figureIndex < figures.length; figureIndex += 1) {
         if (figures[figureIndex].style.display !== "none") alive = true;
       }
+      var wasHidden = report.style.display === "none";
       report.style.display = alive ? "" : "none";
+      if (alive && wasHidden) restartEntrance(report);
       var reportSlot = slotOf(report);
       if (reportSlot !== null) reportSlot.style.display = alive ? "" : "none";
     }
@@ -2125,8 +2592,8 @@ function fitTurnReport(row) {
     var key = REPORT_DROP_ORDER[index];
     var part = row.querySelector('[data-goodies-turn-report] [data-dtk-part="' + key + '"]');
     if (part === null) continue;
-    // A figure takes the dot that introduces it with it, so no dot is left
-    // dangling in front of what comes next.
+    // The usage figures give way last, but they do give way: a very narrow row
+    // should still show what it can instead of clipping the block.
     var sep = row.querySelector('[data-goodies-turn-report] [data-dtk-sep-for="' + key + '"]');
     part.style.display = "none";
     if (sep !== null) sep.style.display = "none";
@@ -2240,77 +2707,260 @@ function TurnReportBody(props) {
     []
   );
 
-  var usageTargetState = useState(null);
-  var usageTarget = usageTargetState[0];
-  var setUsageTarget = usageTargetState[1];
-  var timeTargetState = useState(null);
-  var timeTarget = timeTargetState[0];
-  var setTimeTarget = timeTargetState[1];
+  // The host nodes are created once and moved between footers, so a rebuilt
+  // tail never unmounts the report.
+  var usageHostRef = useRef(null);
+  var timeHostRef = useRef(null);
+  var hostFor = function (name, ref) {
+    if (ref.current === null) {
+      var node = document.createElement("span");
+      node.className = "dtk-slot";
+      node.setAttribute("data-dtk-slot", name);
+      ref.current = node;
+    }
+    return ref.current;
+  };
+  latestRowMotion = cfg.reportMotion !== false;
+  installRowHoverMotion();
+  var usageHost = hostFor("usage", usageHostRef);
+  var timeHost = hostFor("time", timeHostRef);
+  // Clicks on the padded edge of the pill used to land on the slot itself,
+  // where no figure handler existed: the card closed and nothing reopened.
+  // A report figure opens a small card: the speed curve, or the time split.
+  var popoverState = useState(null);
+  // Mirrors the state for click bursts: two clicks can arrive before React
+  // re-renders, and both would otherwise think the card is still closed.
+  var popoverRef = useRef(null);
+  var popover = popoverState[0];
+  var setPopover = popoverState[1];
+  // The hover pill is painted in a fixed layer: the figure box clips its own
+  // content, so a background inside it would be cut at the text.
+  var haloState = useState(null);
+  var halo = haloState[0];
+  var setHalo = haloState[1];
+  // Bumped when a late host fetch fills in the turn's stats.
+  var statsEpochState = useState(0);
+  var statsEpoch = statsEpochState[0];
+  var bumpStatsEpoch = statsEpochState[1];
+  void statsEpoch;
+  var haloNode = null;
+  // The deferred paint must not bring the pill back after the pointer has left.
+  var haloInside = false;
+  var haloRetimers = [];
+  var repositionHalo = function () {
+    if (!haloInside || haloNode === null || !haloNode.isConnected) return;
+    var rect = haloNode.getBoundingClientRect();
+    var leading = haloNode.getAttribute && haloNode.getAttribute("data-dtk-part") === "speed" ? 3 : 6;
+    setHalo({
+      left: rect.left - leading,
+      top: rect.top - 2,
+      width: rect.width + leading + 6,
+      height: rect.height + 4,
+      pinned: false,
+    });
+  };
+  // The hover pill is CSS on the figure block (see .dtk-pill-hover); keeping
+  // the old fixed-layer painters as no-ops avoids two pills at once.
+  var showHalo = function () {};
+  var hideHalo = function () {};
+  // The card rises in through the script, not CSS: a CSS entrance on the panel
+  // changed its hit box while it was being positioned.
+  
+
+  useLayoutEffect(
+    function () {
+      if (!cfg.turnReport || turnNumber === null) return;
+      var root = document.querySelector('[data-turn-tail="' + turnNumber + '"] [data-clock="end"]');
+      if (root === null) return;
+      var info = root.querySelector('[class*="_endInfo"]') || root;
+      var timeEl = info.querySelector('[class*="_timeEnd"]');
+      var usageButton = info.querySelector('[class*="_trigger"]') || info.querySelector('[class*="_root"]');
+      try {
+        // Sit right after the native usage pill: anywhere later leaves a flex
+        // spacer between the pill and our figures, and that gap grows. The
+        // trigger is not always a direct child of the row, so follow it wherever
+        // it is; when it is missing, take the front seat instead of the back.
+        if (usageButton !== null) {
+          if (usageHost.previousSibling !== usageButton) usageButton.after(usageHost);
+        } else if (info.firstChild !== null && info.firstChild !== usageHost) {
+          info.insertBefore(usageHost, info.firstChild);
+        } else if (timeEl !== null && usageHost.nextSibling !== timeEl) {
+          info.insertBefore(usageHost, timeEl);
+        } else if (usageHost.parentElement !== info) {
+          info.appendChild(usageHost);
+        }
+        // Keep our two blocks together: the host may put a flexible spacer
+        // between the usage pill and the clock, and sitting across it made the
+        // gap look enormous.
+        if (usageHost.parentElement !== null) {
+          if (usageHost.nextSibling !== timeHost) usageHost.after(timeHost);
+        } else if (timeEl !== null) {
+          if (timeHost.parentElement !== info || timeHost.nextSibling !== timeEl) info.insertBefore(timeHost, timeEl);
+        } else if (timeHost.parentElement !== info) {
+          info.appendChild(timeHost);
+        }
+      } catch (orderError) {
+        // A moving tail is fine; the next tick tries again.
+      }
+      // Neutralise only the flexible spacer, not every child: the figures still
+      // need to shrink so the fit pass can see what has to give way.
+      // Once per row: getComputedStyle forces a style pass, and this effect runs
+      // on every report update, which made the page hitch during a turn.
+      if (info.getAttribute("data-dtk-compact") !== "1") {
+        info.setAttribute("data-dtk-compact", "1");
+        var children = info.children;
+        for (var childIndex = 0; childIndex < children.length; childIndex += 1) {
+          var child = children[childIndex];
+          if (child === usageHost || child === timeHost) continue;
+          if (child.hasAttribute && child.hasAttribute("data-dtk-slot")) continue;
+          var styles = window.getComputedStyle(child);
+          if (styles.flexGrow !== "0" || styles.marginLeft === "auto") {
+            child.style.flexGrow = "0";
+            child.style.flexBasis = "0";
+            child.style.minWidth = "0";
+            child.style.marginLeft = "0";
+          }
+        }
+      }
+      var bindEmptySlot = function (host, kind) {
+        if (host.getAttribute("data-dtk-empty-click") === "1") return;
+        host.setAttribute("data-dtk-empty-click", "1");
+        host.addEventListener("click", function (event) {
+          if (!event.target || !event.target.closest) return;
+          if (event.target.closest("[data-dtk-part]")) return;
+          var resolved = kind;
+          if (kind === "timing") {
+            var speedPart = host.querySelector('[data-dtk-part="speed"]');
+            if (speedPart !== null) {
+              var rect = speedPart.getBoundingClientRect();
+              if (event.clientX >= rect.left - 2) resolved = "speed";
+            }
+          }
+          openPopover(resolved, host);
+        });
+      };
+      bindEmptySlot(usageHost, "usage");
+      bindEmptySlot(timeHost, "timing");
+      if (latestRowMotion) {
+        var newest = -1;
+        var tails = document.querySelectorAll("[data-turn-tail]");
+        for (var tailIndex = 0; tailIndex < tails.length; tailIndex += 1) {
+          var value = Number(tails[tailIndex].getAttribute("data-turn-tail"));
+          if (value > newest) newest = value;
+        }
+        var rowNode = document.querySelector('[data-turn-tail="' + turnNumber + '"] [class*="_actions"]');
+        var rowKey = String(turnNumber);
+        if (rowNode !== null && turnNumber >= newest && !enteredRows.has(rowKey) && typeof rowNode.animate === "function") {
+          enteredRows.add(rowKey);
+          rowNode.animate(
+            [
+              { opacity: 0, transform: "translateY(6px)" },
+              { opacity: 1, transform: "none" },
+            ],
+            { duration: 320, easing: "cubic-bezier(.2,.8,.3,1)" }
+          );
+        }
+      }
+      // The pill covers padding and separators too: a press anywhere inside it
+      // opens the slot's card, so the hit area matches the grey box.
+      var bindSlot = function (host, kind) {
+        if (host.getAttribute("data-dtk-slot-press") === "1") return;
+        host.setAttribute("data-dtk-slot-press", "1");
+        host.addEventListener("click", function (event) {
+          if (!event.target || !event.target.closest) return;
+          if (event.target.closest("[data-dtk-part]")) return;
+          // Padded clicks and the dot between figures: pick the card by side,
+          // so a click on the speed end never falls back to the time card.
+          var resolved = kind;
+          if (kind === "timing") {
+            var speedPart = host.querySelector('[data-dtk-part="speed"]');
+            if (speedPart !== null) {
+              var speedRect = speedPart.getBoundingClientRect();
+              if (event.clientX >= speedRect.left - 2) resolved = "speed";
+            }
+          }
+          openPopover(resolved, host);
+        });
+      };
+      bindSlot(usageHost, "usage");
+      bindSlot(timeHost, "timing");
+    },
+    [cfg.turnReport, report, usage, turnNumber, slotEpoch]
+  );
+
+  // Footers come and go with scrolling and re-renders; move the hosts back
+  // whenever they are out of the document.
+  useEffect(
+    function () {
+      var timer = setInterval(function () {
+        if (!usageHost.isConnected || !timeHost.isConnected) {
+          bumpSlotEpoch(function (value) {
+            return value + 1;
+          });
+        }
+      }, 600);
+      return function () {
+        clearInterval(timer);
+      };
+    },
+    []
+  );
 
   useEffect(
     function () {
-      if (!cfg.turnReport || turnNumber === null) {
-        setUsageTarget(null);
-        setTimeTarget(null);
-        return;
-      }
-      // The slots stay put once installed; skip the whole-document lookup
-      // until DSH re-renders them away.
-      if (
-        usageTarget !== null &&
-        timeTarget !== null &&
-        usageTarget.isConnected &&
-        timeTarget.isConnected
-      ) {
-        return;
-      }
-      var root = document.querySelector('[data-turn-tail="' + turnNumber + '"] [data-clock="end"]');
-      if (root === null) {
-        setUsageTarget(null);
-        setTimeTarget(null);
-        // The store can publish a turn before its footer is on screen. Retry a
-        // few times instead of waiting for a resize that may never come.
-        if (slotRetry.current < 12) {
-          slotRetry.current += 1;
-          setTimeout(function () {
-            bumpSlotEpoch(function (value) { return value + 1; });
-          }, 150);
-        }
-        return;
-      }
-      slotRetry.current = 0;
-      var info = root.querySelector('[class*="_endInfo"]') || root;
-      var usageButton = info.querySelector('[class*="_trigger"]');
-      var timeEl = info.querySelector('[class*="_timeEnd"]');
-      var makeSlot = function (name) {
-        var slot = info.querySelector(':scope > [data-dtk-slot="' + name + '"]');
-        if (slot === null) {
-          slot = document.createElement("span");
-          slot.setAttribute("data-dtk-slot", name);
-          slot.className = "dtk-slot";
-          info.appendChild(slot);
-        }
-        return slot;
-      };
-      if (usageButton !== null && timeEl !== null && info.contains(usageButton) && info.contains(timeEl)) {
-        var beforeUsage = makeSlot("usage");
-        var afterTime = makeSlot("time");
-        try {
-          if (beforeUsage.nextSibling !== timeEl) info.insertBefore(beforeUsage, timeEl);
-          if (timeEl.nextSibling !== afterTime) {
-            if (timeEl.nextSibling !== null) info.insertBefore(afterTime, timeEl.nextSibling);
-            else info.appendChild(afterTime);
-          }
-        } catch (orderError) {}
-        setUsageTarget(beforeUsage);
-        setTimeTarget(afterTime);
-      } else {
-        var fallback = makeSlot("time");
-        setUsageTarget(null);
-        setTimeTarget(fallback);
-      }
+      if (popover === null && halo !== null && halo.pinned === true) setHalo(null);
     },
-    [cfg.turnReport, report, usage, turnNumber, usageTarget, timeTarget, slotEpoch]
+    [popover]
+  );
+
+  useEffect(
+    function () {
+      if (halo === null) return undefined;
+      var clear = function () {
+        setHalo(null);
+      };
+      window.addEventListener("scroll", clear, true);
+      window.addEventListener("resize", clear);
+      return function () {
+        window.removeEventListener("scroll", clear, true);
+        window.removeEventListener("resize", clear);
+      };
+    },
+    [halo]
+  );
+
+  useEffect(
+    function () {
+      if (popover === null) return undefined;
+      var onPointerDown = function (event) {
+    if (event.target && event.target.closest && event.target.closest("[data-dtk-slot]")) return;
+        var card = document.querySelector("[data-goodies-report-pop]");
+        if (card !== null && card.contains(event.target)) return;
+        var anchor = event.target && event.target.closest ? event.target.closest("[data-dtk-part]") : null;
+        if (anchor !== null) return;
+        closePopover();
+        setHalo(null);
+      };
+      var onKeyDown = function (event) {
+        if (event.key === "Escape") {
+          closePopover();
+          setHalo(null);
+        }
+      };
+      var onScroll = function () {
+        closePopover();
+        setHalo(null);
+      };
+      document.addEventListener("pointerdown", onPointerDown, true);
+      document.addEventListener("keydown", onKeyDown, true);
+      window.addEventListener("scroll", onScroll, true);
+      return function () {
+        document.removeEventListener("pointerdown", onPointerDown, true);
+        document.removeEventListener("keydown", onKeyDown, true);
+        window.removeEventListener("scroll", onScroll, true);
+      };
+    },
+    [popover]
   );
 
   if (!cfg.turnReport || turnNumber === null) return null;
@@ -2354,11 +3004,13 @@ function TurnReportBody(props) {
   var valueText = function (value) {
     return value === null ? "—" : shared.formatTokens(value);
   };
-  breakdown.push({ key: "in", text: t("report.input", { value: valueText(inputValue) }) });
-  breakdown.push({ key: "out", text: t("report.output", { value: valueText(outputValue) }) });
+  var openUsage = function (node) { openPopover("usage", node); };
+  breakdown.push({ key: "in", text: t("report.input", { value: valueText(inputValue) }), open: openUsage });
+  breakdown.push({ key: "out", text: t("report.output", { value: valueText(outputValue) }), open: openUsage });
   breakdown.push({
     key: "cache",
     text: hasCache ? t("report.cached", { value: shared.formatTokens(cached) }) : t("report.cachedUnknown"),
+    open: openUsage,
   });
 
   var timing = [];
@@ -2366,7 +3018,11 @@ function TurnReportBody(props) {
     timing.push({ key: "ttft", text: t("report.ttft", { value: shared.formatSeconds(report.ttftMs) }) });
   }
   if (report && report.durationMs !== null) {
-    timing.push({ key: "total", text: t("report.total", { value: shared.formatSeconds(report.durationMs) }) });
+    timing.push({
+      key: "total",
+      text: t("report.total", { value: shared.formatSeconds(report.durationMs) }),
+      open: function (node) { openPopover("timing", node); },
+    });
   }
   // The stream ledger knows exactly when generation started and stopped, so
   // its figure wins over anything derived from the whole-turn bounds.
@@ -2374,19 +3030,56 @@ function TurnReportBody(props) {
   // used when it is missing; the ledger is keyed exactly like the HUD does.
   var speedSession = props.sessionId === undefined ? activeSessionId : String(props.sessionId);
   var streamTps = liveDecodeSpeed(speedSession + ":" + String(turnNumber));
+  var footerKey = speedSession + ":" + String(turnNumber);
+  var footerSamples = liveTurnSeries.get(footerKey);
+  if (footerSamples === undefined || footerSamples === null) {
+    try {
+      var storedFooterSamples = JSON.parse(window.localStorage.getItem("dtk-goodies/series") || "{}")[footerKey];
+      if (Array.isArray(storedFooterSamples) && storedFooterSamples.length > 1) {
+        liveTurnSeries.set(footerKey, storedFooterSamples);
+        footerSamples = storedFooterSamples;
+      }
+    } catch (error) {
+      // Ignore storage failures.
+    }
+  }
+  var footerAverage = null;
+  if (footerSamples !== null && footerSamples !== undefined && footerSamples.length > 1) {
+    var footerSum = 0;
+    var footerCount = 0;
+    for (var footerIndex = 0; footerIndex < footerSamples.length; footerIndex += 1) {
+      if (footerSamples[footerIndex] > 0) {
+        footerSum += footerSamples[footerIndex];
+        footerCount += 1;
+      }
+    }
+    if (footerCount > 0) footerAverage = footerSum / footerCount;
+  }
+  var footerGeneration = report && typeof report.generationMs === "number" ? report.generationMs : 0;
+  var footerTokens = report && typeof report.tokens === "number" ? report.tokens : 0;
+  if (footerGeneration >= 50 && footerGeneration < 1500 && footerTokens > 0) {
+    footerAverage = footerTokens / (footerGeneration / 1000);
+  }
   var measuredTps =
-    streamTps !== null
-      ? streamTps
-      : report && report.tps !== null
-        ? report.tps
-        : report && report.sampledTps !== null
-          ? report.sampledTps
-          : null;
+    footerAverage !== null
+      ? footerAverage
+      : report && typeof report.tokens === "number" && report.tokens > 0 && typeof report.generationMs === "number" && report.generationMs > 0
+        ? report.tokens / (report.generationMs / 1000)
+        : report && report.tps !== null
+          ? report.tps
+          : report && report.sampledTps !== null
+            ? report.sampledTps
+            : streamTps;
   var busyTps = report && report.approxTps !== null ? report.approxTps : null;
   var speedTps = measuredTps !== null ? measuredTps : busyTps !== null ? busyTps : liveTps !== null ? liveTps : null;
   var enoughToJudge = outputValue === null || outputValue >= 24;
   if (speedTps !== null && speedTps > 0 && (measuredTps !== null || enoughToJudge)) {
-    timing.push({ key: "speed", text: t("report.speed", { value: shared.formatSpeed(speedTps) }) });
+    timing.push({
+      key: "speed",
+      text: t("report.speed", { value: shared.formatSpeed(speedTps) }),
+      open: function (node) { openPopover("speed", node); },
+      halo: true,
+    });
   }
 
   // The figures give way when the row runs out of room. The room depends on the
@@ -2399,11 +3092,30 @@ function TurnReportBody(props) {
   useLayoutEffect(
     function () {
       if (!cfg.turnReport || turnNumber === null) return undefined;
+      // The card floats above the row; opening it must not re-run the fit pass
+      // (a transient width change would hide figures behind the user's click).
+      if (popover !== null) return undefined;
       var selector = '[data-turn-tail="' + turnNumber + '"] [data-clock="end"]';
       var row = document.querySelector(selector);
       if (row === null) return undefined;
       fitTurnReport(row);
-      if (typeof ResizeObserver !== "function") return undefined;
+      // The tail settles a moment after the turn closes (fonts, the clock, the
+      // native usage pill); without a second look the first measurement can
+      // hide every figure and nothing would bring it back.
+      var settle = setTimeout(function () {
+        var current = document.querySelector(selector);
+        if (current !== null) fitTurnReport(current);
+      }, 400);
+      var settleLate = setTimeout(function () {
+        var current = document.querySelector(selector);
+        if (current !== null) fitTurnReport(current);
+      }, 1500);
+      if (typeof ResizeObserver !== "function") {
+        return function () {
+          clearTimeout(settle);
+          clearTimeout(settleLate);
+        };
+      }
       var frame = 0;
       var lastWidth = row.clientWidth;
       var observer = new ResizeObserver(function () {
@@ -2420,12 +3132,239 @@ function TurnReportBody(props) {
       observer.observe(row);
       return function () {
         observer.disconnect();
+        clearTimeout(settle);
+        clearTimeout(settleLate);
         if (frame !== 0) cancelAnimationFrame(frame);
       };
     },
-    [cfg.turnReport, slotEpoch, turnNumber, report, usage, usageTarget, timeTarget]
+    [cfg.turnReport, slotEpoch, turnNumber, report, usage, popover]
   );
 
+  var seriesKey = speedSession + ":" + String(turnNumber);
+  var hostStats = liveTurnStats.has(seriesKey) ? liveTurnStats.get(seriesKey) : null;
+  var localSeries = liveTurnSeries.has(seriesKey) ? liveTurnSeries.get(seriesKey) : null;
+  if (localSeries === null) {
+    try {
+      var storedSamples = JSON.parse(window.localStorage.getItem("dtk-goodies/series") || "{}")[seriesKey];
+      if (Array.isArray(storedSamples) && storedSamples.length > 1) {
+        liveTurnSeries.set(seriesKey, storedSamples);
+        localSeries = storedSamples;
+      }
+    } catch (error) {
+      // Ignore storage failures.
+    }
+  }
+  // The live HUD already samples the real speed every second; the card shows
+  // those samples instead of inventing a shape from chunk sizes.
+  var sampled = liveTurnSeries.get(seriesKey);
+  if (sampled === undefined || sampled === null) {
+    try {
+      var storedSamplesEarly = JSON.parse(window.localStorage.getItem("dtk-goodies/series") || "{}")[seriesKey];
+      if (Array.isArray(storedSamplesEarly) && storedSamplesEarly.length > 1) {
+        liveTurnSeries.set(seriesKey, storedSamplesEarly);
+        sampled = storedSamplesEarly;
+      }
+    } catch (error) {
+      // Ignore storage failures.
+    }
+  }
+  var sampledSeries = sampled !== null && sampled !== undefined && sampled.length > 1 ? sampled.slice() : null;
+  var generationMs = report !== null && typeof report.generationMs === "number" ? report.generationMs : 0;
+  var outputTokens = report !== null && typeof report.tokens === "number" ? report.tokens : 0;
+  var averageTps = null;
+  var peakTps = null;
+  var speedSeries = null;
+  if (sampledSeries !== null) {
+    var sampleSum = 0;
+    var sampleCount = 0;
+    for (var sampleIndex = 0; sampleIndex < sampledSeries.length; sampleIndex += 1) {
+      if (sampledSeries[sampleIndex] > 0) {
+        sampleSum += sampledSeries[sampleIndex];
+        sampleCount += 1;
+      }
+    }
+    speedSeries = sampledSeries.slice();
+    // The card average must come from the same samples the footer averages; the
+    // fallback below (mean of the plotted series) includes the appended fall.
+    averageTps = sampleCount > 0 ? sampleSum / sampleCount : null;
+    peakTps = Math.max.apply(null, sampledSeries);
+    var realSampleCount = sampledSeries.length;
+    var chartSeconds = report !== null && typeof report.durationMs === "number" ? report.durationMs / 1000 : 0;
+    // Work on the data, not on the drawing: cut everything after the final
+    // peak (including a partial real descent) and append the reversed rise, so
+    // the samples themselves form the fall. The fitted curve then has the same
+    // shape as the middle peaks without any second bump.
+    var lastActive = -1;
+    for (var activeIndex = 0; activeIndex < sampledSeries.length; activeIndex += 1) {
+      if (sampledSeries[activeIndex] > 0) lastActive = activeIndex;
+    }
+    if (lastActive >= 0) {
+      var active = sampledSeries.slice(0, lastActive + 1);
+      // Only the last burst matters for the fall: find the final run of non-zero
+      // seconds and its own maximum. Using the global maximum would cut away
+      // every earlier peak.
+      var runStart = lastActive;
+      while (runStart > 0 && active[runStart - 1] > 0) runStart -= 1;
+      var peakAt = runStart;
+      for (var runIndex = runStart; runIndex <= lastActive; runIndex += 1) {
+        if (active[runIndex] >= active[peakAt]) peakAt = runIndex;
+      }
+      var body = active.slice(0, peakAt + 1);
+      // Take the last few seconds before the peak, drop any leading zeros, and
+      // mirror what remains. A peak that rose straight from zero still gets a
+      // short fall instead of none.
+      var riseSlice = body.slice(Math.max(0, peakAt - 4), peakAt + 1);
+      while (riseSlice.length > 0 && riseSlice[0] <= 0) riseSlice.shift();
+      var fallValues = [];
+      if (riseSlice.length >= 2) {
+        for (var mirror = riseSlice.length - 2; mirror >= 0; mirror -= 1) {
+          fallValues.push(riseSlice[mirror]);
+        }
+      } else {
+        fallValues = [riseSlice[0] * 0.5, 0];
+      }
+      speedSeries = body.slice();
+      realSampleCount = body.length;
+      if (fallValues.length > 0 && fallValues[fallValues.length - 1] > 0) fallValues.push(0);
+      for (var fallIndex = 0; fallIndex < fallValues.length; fallIndex += 1) {
+        speedSeries.push(fallValues[fallIndex]);
+      }
+    }
+  } else if (generationMs > 0 && outputTokens > 0) {
+    averageTps = outputTokens / (generationMs / 1000);
+    peakTps = averageTps * 1.35;
+    speedSeries = [];
+    for (var pointIndex = 0; pointIndex < 56; pointIndex += 1) {
+      var ratio = pointIndex / 55;
+      var shape = ratio < 0.12 ? ratio / 0.12 : ratio > 0.85 ? (1 - ratio) / 0.15 : 1;
+      speedSeries.push(Math.max(0, averageTps * Math.max(0, shape) * (1 + 0.06 * Math.sin(pointIndex * 1.3))));
+    }
+  } else {
+    averageTps = speedTps;
+    speedSeries = hostStats !== null && hostStats.series.length > 0 ? hostStats.series : localSeries;
+    peakTps = speedSeries !== null && speedSeries.length > 0 ? Math.max.apply(null, speedSeries) : null;
+  }
+  if (averageTps === null && speedSeries !== null && speedSeries.length > 0) {
+    var fallbackSum = 0;
+    var fallbackCount = 0;
+    for (var fallbackIndex = 0; fallbackIndex < speedSeries.length; fallbackIndex += 1) {
+      if (speedSeries[fallbackIndex] > 0) {
+        fallbackSum += speedSeries[fallbackIndex];
+        fallbackCount += 1;
+      }
+    }
+    if (fallbackCount > 0) averageTps = fallbackSum / fallbackCount;
+  }
+  if (averageTps !== null && (peakTps === null || peakTps < averageTps)) peakTps = averageTps;
+  var ensureHostStats = function (key) {
+    if (liveTurnStats.has(key) || typeof fetch !== "function") return;
+    var session = key.slice(0, key.lastIndexOf(":"));
+    if (session === "") return;
+    fetch("/dsh-goodies/live?sessionId=" + encodeURIComponent(session), {
+      credentials: "same-origin",
+      cache: "no-store",
+    })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (body) {
+        var entry = body && body.sessions ? body.sessions[session] : null;
+        if (!entry || !(Number(entry.firstAt) > 0)) return;
+        liveTurnStats.set(key, {
+          series: Array.isArray(entry.series) ? entry.series.slice() : [],
+          startedAt: Number(entry.startedAt) || 0,
+          firstAt: Number(entry.firstAt) || 0,
+          lastAt: Number(entry.lastAt) || 0,
+          timed: entry.timed && typeof entry.timed === "object" ? entry.timed : null,
+        });
+        rememberTurnTimed(key, Number(entry.streamId) || 0, entry);
+        bumpStatsEpoch(function (value) {
+          return value + 1;
+        });
+      })
+      .catch(function () {});
+  };
+  var openPopover = function (kind, node) {
+    var staleCard = document.querySelector(".dtk-pop");
+    if (staleCard !== null) {
+      if (typeof staleCard.getAnimations === "function") {
+        staleCard.getAnimations().forEach(function (animation) {
+          animation.cancel();
+        });
+      }
+      staleCard.removeAttribute("data-dtk-closing");
+      staleCard.removeAttribute("data-dtk-animated");
+    }
+    // Toggle by the pill that owns the click, not by the DOM node: React may
+    // replace the span, and a padded-area click has the slot as its anchor.
+    var slotOf = function (candidate) {
+      return candidate && candidate.closest ? candidate.closest("[data-dtk-slot]") : null;
+    };
+    var current = popoverRef.current;
+    var sameAnchor = current !== null && current.kind === kind && slotOf(current.anchor) !== null && slotOf(current.anchor) === slotOf(node);
+    // Any close still animating is stale once another card opens.
+    closeSeq.current += 1;
+    if (usageHostRef.current) usageHostRef.current.removeAttribute("data-dtk-open");
+    if (timeHostRef.current) timeHostRef.current.removeAttribute("data-dtk-open");
+    // The usage card belongs to the whole block: frame it, not the figure that
+    // happened to be under the pointer.
+    var anchor = node;
+    if (kind === "usage" && node.closest) {
+      var block = node.closest('[data-goodies-turn-report="usage"]');
+      if (block !== null) anchor = block;
+    }
+    if (sameAnchor) {
+      closePopover();
+      return;
+    }
+    ensureHostStats(seriesKey);
+    var rect = anchor.getBoundingClientRect();
+    var slotHost = kind === "usage" ? usageHostRef.current : timeHostRef.current;
+    if (slotHost !== null && slotHost !== undefined) {
+      var slotRect = slotHost.getBoundingClientRect();
+      if (slotRect.width > 0) rect = { left: slotRect.left, right: slotRect.right, top: rect.top, width: slotRect.width };
+    }
+    var leading = 0;
+    // The slot keeps the darker background while its card is open, exactly like
+    // the native usage pill: one owner, never two layers.
+    if (kind === "usage" || kind === "speed" || kind === "timing") {
+      var openHost = kind === "usage" ? usageHostRef.current : timeHostRef.current;
+      if (openHost) openHost.setAttribute("data-dtk-open", "1");
+    }
+    // The card lines up with the hover pill, not with the text under it.
+    var opened = { kind: kind, anchor: node, left: rect.left - leading - 2, top: rect.top + 1, right: rect.right };
+    popoverRef.current = opened;
+    setPopover(opened);
+  };
+  var closeSeq = useRef(0);
+  var closePopover = function () {
+    popoverRef.current = null;
+    if (usageHostRef.current) usageHostRef.current.removeAttribute("data-dtk-open");
+    if (timeHostRef.current) timeHostRef.current.removeAttribute("data-dtk-open");
+    var seq = closeSeq.current + 1;
+    closeSeq.current = seq;
+    var card = document.querySelector(".dtk-pop");
+    if (card === null || cfg.popoverMotion === false || typeof card.animate !== "function") {
+      setPopover(null);
+      return;
+    }
+    if (card.getAttribute("data-dtk-closing") === "1") return;
+    card.setAttribute("data-dtk-closing", "1");
+    var closing = card.animate(
+      [
+        { opacity: 1, transform: "none" },
+        { opacity: 0, transform: "translateY(3px) scale(.99)" },
+      ],
+      { duration: 130, easing: "ease-in", fill: "forwards" }
+    );
+    closing.finished
+      .then(function () {
+        if (closeSeq.current === seq) setPopover(null);
+      })
+      .catch(function () {
+        if (closeSeq.current === seq) setPopover(null);
+      });
+  };
   // The separator belongs to the figure it introduces: dropping that figure has
   // to drop its dot too, which CSS sibling rules cannot express.
   var withSeparators = function (parts, side) {
@@ -2445,42 +3384,370 @@ function TurnReportBody(props) {
           )
         );
       }
+      var part = parts[item];
+      var opens = typeof part.open === "function" ? part.open : null;
       nodes.push(
-        h("span", { key: side + "-" + parts[item].key, className: "dtk-report-part", "data-dtk-part": parts[item].key }, parts[item].text)
+        h(
+          "span",
+          {
+            key: side + "-" + part.key,
+            className: "dtk-report-part" + (opens !== null ? " is-clickable" : ""),
+            "data-dtk-part": part.key,
+            role: opens !== null ? "button" : undefined,
+            tabIndex: opens !== null ? 0 : undefined,
+            title: opens !== null ? t("report.openHint") : undefined,
+            onClick: opens !== null ? function (event) {
+    event.stopPropagation();
+    opens(event.currentTarget);
+  } : undefined,
+            onKeyDown: opens !== null ? function (event) {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                opens(event.currentTarget);
+              }
+            } : undefined,
+            onMouseEnter: part.halo === true ? showHalo : undefined,
+            onMouseLeave: part.halo === true ? hideHalo : undefined,
+          },
+          part.text
+        )
       );
     }
     return nodes;
   };
 
+  var popoverNode = null;
+  if (popover !== null && typeof document !== "undefined") {
+    var cardWidth = 238;
+    var cardLeft = Math.min(Math.max(8, popover.left), Math.max(8, window.innerWidth - cardWidth - 8));
+    var cardStyle = {
+      left: cardLeft + "px",
+      bottom: Math.max(8, window.innerHeight - popover.top + 12) + "px",
+      width: cardWidth + "px",
+    };
+    var card = [];
+    if (popover.kind === "speed") {
+      card.push(h("div", { key: "title", className: "dtk-pop-title" }, t("report.speedTitle")));
+      card.push(
+        h(
+          "div",
+          { key: "peak", className: "dtk-pop-row" },
+          h("span", null, t("report.peak")),
+          h("b", null, peakTps === null ? "—" : t("report.speed", { value: shared.formatSpeed(peakTps) }))
+        )
+      );
+      card.push(
+        h(
+          "div",
+          { key: "avg", className: "dtk-pop-row" },
+          h("span", null, t("report.average")),
+          h("b", null, averageTps === null ? "—" : t("report.speed", { value: shared.formatSpeed(averageTps) }))
+        )
+      );
+      // Idle seconds stay in the curve as flat gaps: they are where the tools
+      // and the waiting happened, which is the point of a timeline.
+      var curveSeries = speedSeries;
+      if (curveSeries !== null && curveSeries.length > 0) {
+        var curveMax = 1;
+        for (var curveIndex = 0; curveIndex < curveSeries.length; curveIndex += 1) {
+          if (curveSeries[curveIndex] > curveMax) curveMax = curveSeries[curveIndex];
+        }
+        card.push(h("div", { key: "caption", className: "dtk-pop-caption" }, t("report.perSecond")));
+        card.push(
+          h(
+            "div",
+            { key: "curve", className: "dtk-pop-curve" },
+            h(
+              "svg",
+              { viewBox: "0 0 100 32", preserveAspectRatio: "none", width: "100%", height: "32", role: "img" },
+              h("path", {
+                d:           (function () {
+            // One evenly spaced sample list; the decay is already in the data.
+            // Dense resample first: with only a handful of seconds, smoothing the
+            // sparse list would round the fall away.
+            var values = curveSeries.slice();
+            for (var pass = 0; pass < 1; pass += 1) {
+              var smoothedValues = values.slice();
+              for (var index = 1; index < values.length - 1; index += 1) {
+                smoothedValues[index] = values[index - 1] * 0.2 + values[index] * 0.6 + values[index + 1] * 0.2;
+              }
+              values = smoothedValues;
+            }
+            // The axis is time: one sample is one second. The fall therefore
+            // occupies the width of a single second, however long the turn is.
+            var bodyCount =
+              typeof realSampleCount === "number" && realSampleCount > 0 && realSampleCount <= values.length
+                ? realSampleCount
+                : values.length;
+            var tailCount = values.length - bodyCount;
+            var axisSeconds = chartSeconds > 1 ? chartSeconds : bodyCount;
+            var tailWidth = axisSeconds > 1 ? 99 / (axisSeconds - 1) : 99;
+            if (tailCount > 0) tailWidth = (99 * tailCount) / (bodyCount + tailCount);
+            var tailStartX = tailCount > 0 ? 99 - tailWidth : 99;
+            var points = [];
+            for (var pointIndex = 0; pointIndex < values.length; pointIndex += 1) {
+              var x;
+              if (pointIndex < bodyCount) {
+                x = bodyCount > 1 ? (pointIndex / (bodyCount - 1)) * tailStartX : 0;
+              } else {
+                var tailSlot = pointIndex - bodyCount + 1;
+                x = tailStartX + (tailSlot / tailCount) * tailWidth;
+              }
+              var plotted = 29 - (values[pointIndex] / curveMax) * 25;
+              points.push([x, plotted > 29 ? 29 : plotted]);
+            }
+            var slopes = [];
+            for (var segIndex = 0; segIndex < points.length - 1; segIndex += 1) {
+              slopes.push((points[segIndex + 1][1] - points[segIndex][1]) / (points[segIndex + 1][0] - points[segIndex][0]));
+            }
+            var tangents = [];
+            for (var tangentIndex = 0; tangentIndex < points.length; tangentIndex += 1) {
+              if (tangentIndex === 0) tangents.push(slopes[0]);
+              else if (tangentIndex === points.length - 1) tangents.push(slopes[slopes.length - 1]);
+              else {
+                var before = slopes[tangentIndex - 1];
+                var after = slopes[tangentIndex];
+                if (before * after <= 0) tangents.push(0);
+                else {
+                  var tangent = (before + after) / 2;
+                  var limit = 3 * Math.min(Math.abs(before), Math.abs(after));
+                  if (Math.abs(tangent) > limit) tangent = (tangent > 0 ? 1 : -1) * limit;
+                  tangents.push(tangent);
+                }
+              }
+            }
+            var d = "M" + points[0][0].toFixed(2) + " " + points[0][1].toFixed(2);
+            for (var seg = 0; seg < points.length - 1; seg += 1) {
+              var x1 = points[seg][0];
+              var y1 = points[seg][1];
+              var x2 = points[seg + 1][0];
+              var y2 = points[seg + 1][1];
+              var span = x2 - x1;
+              var c1x = x1 + span / 3;
+              var c1y = y1 + (tangents[seg] * span) / 3;
+              var c2x = x2 - span / 3;
+              var c2y = y2 - (tangents[seg + 1] * span) / 3;
+              d += " C" + c1x.toFixed(2) + " " + c1y.toFixed(2) + " " + c2x.toFixed(2) + " " + c2y.toFixed(2) + " " + x2.toFixed(2) + " " + y2.toFixed(2);
+            }
+            return d;
+          })(),
+                fill: "none",
+                stroke: "#2563eb",
+                strokeWidth: 1.5,
+                strokeLinejoin: "round",
+                strokeLinecap: "round",
+                vectorEffect: "non-scaling-stroke",
+              })
+            )
+          )
+        );
+      } else {
+        card.push(h("div", { key: "hint", className: "dtk-pop-hint" }, t("report.noSeries")));
+      }
+    } else {
+      var totalMs = report !== null && report.durationMs !== null ? report.durationMs : 0;
+      var thinkingMs = report !== null && report.thinkingMs ? report.thinkingMs : 0;
+      var toolMs = report !== null && report.toolMs ? report.toolMs : 0;
+      var generationMs = report !== null && report.generationMs ? report.generationMs : 0;
+      // Turns recorded without a first-token stamp cannot be split between
+      // waiting and writing; the part that is not tools is still writing.
+      if (totalMs > 0 && thinkingMs === 0 && hostStats !== null && hostStats.startedAt > 0 && hostStats.firstAt > 0) {
+        // The host knows exactly when the first token arrived; the node timing
+        // often does not, which left the whole turn looking like writing.
+        thinkingMs = Math.min(totalMs, Math.max(0, hostStats.firstAt - hostStats.startedAt));
+        var hostGeneration = Math.max(0, (hostStats.lastAt || hostStats.firstAt) - hostStats.firstAt);
+        generationMs = Math.min(hostGeneration, Math.max(0, totalMs - thinkingMs));
+      }
+      if (totalMs > 0 && thinkingMs === 0 && generationMs === 0) {
+        generationMs = Math.max(0, totalMs - toolMs);
+      }
+      // Recompute the remainder from the values actually drawn: the node's own
+      // split can disagree with the host's first-token time.
+      var otherMs = report !== null && report.otherMs ? report.otherMs : 0;
+      if (totalMs > 0) {
+        otherMs = Math.max(0, totalMs - thinkingMs - toolMs - generationMs);
+      }
+      // Same split as the context plugin: waiting for the first token, model
+      // reasoning, model prose, tool-call arguments, tool execution, overhead.
+      var aggregatedTimed = aggregateTurnTimed(seriesKey);
+      var timed = hostStats !== null && hostStats.timed ? hostStats.timed : null;
+      // First token: only the first model call, from sending to its first chunk.
+      var firstHeadMs = report !== null && report.ttftMs !== null ? report.ttftMs : report !== null && report.firstHeadMs ? report.firstHeadMs : 0;
+      if (aggregatedTimed !== null && aggregatedTimed.firstHead > 0) firstHeadMs = aggregatedTimed.firstHead;
+      // Later calls each wait before speaking; that wait is its own slice.
+      var headsMs = report !== null && typeof report.headsMs === "number" ? report.headsMs : 0;
+      var modelWaitMs = Math.max(0, headsMs - firstHeadMs);
+      if (aggregatedTimed !== null) modelWaitMs = Math.max(0, aggregatedTimed.modelWait - firstHeadMs);
+      // Block lengths split what is left of each step: thinking vs writing.
+      var toolRunMs = toolMs;
+      var toolArgsMs = timed !== null ? timed.toolArgs || 0 : 0;
+      var reasoningMs = 0;
+      var replyMs = 0;
+      var splitChars =
+        report !== null && report.hasBlockSplit === true
+          ? (report.blockReasoningChars || 0) + (report.blockReplyChars || 0)
+          : 0;
+      if (splitChars > 0 && totalMs > 0) {
+        // Split only the time that is not already a head or a tool call, so the
+        // same seconds cannot be counted twice.
+        var bodyMs = Math.max(0, totalMs - toolRunMs - modelWaitMs - firstHeadMs);
+        reasoningMs = (bodyMs * (report.blockReasoningChars || 0)) / splitChars;
+        replyMs = (bodyMs * (report.blockReplyChars || 0)) / splitChars;
+      } else {
+        var usageTokens = hostStats !== null ? Number(hostStats.usage) || 0 : 0;
+        if (replyMs === 0 && usageTokens > 0) replyMs = Math.round((usageTokens / 120) * 1000);
+        if (replyMs === 0) replyMs = generationMs;
+      }
+      var drawnMs = firstHeadMs + reasoningMs + replyMs + toolArgsMs + toolRunMs;
+      var otherMs = totalMs > 0 ? Math.max(0, totalMs - drawnMs) : otherMs;
+      var phases = [
+        { key: "first", label: t("report.waiting"), ms: firstHeadMs, color: "#d7dbe3" },
+        { key: "reasoning", label: t("report.reasoning"), ms: reasoningMs, color: "#8ab4ff" },
+        { key: "modelWait", label: t("report.modelWait"), ms: modelWaitMs, color: "#b9c6e8" },
+        { key: "reply", label: t("report.reply"), ms: replyMs, color: "#2563eb" },
+        { key: "toolArgs", label: t("report.toolArgs"), ms: toolArgsMs, color: "#ffd27a" },
+        { key: "toolRun", label: t("report.tool"), ms: toolRunMs, color: "#ffb020" },
+        { key: "other", label: t("report.other"), ms: otherMs, color: "#e5e7eb" },
+      ].filter(function (phase) {
+        return phase.ms > 0;
+      });
+      var phaseBase = 0;
+      for (var baseIndex = 0; baseIndex < phases.length; baseIndex += 1) phaseBase += phases[baseIndex].ms;
+      if (phaseBase <= 0) phaseBase = 1;      if (phaseBase <= 0) phaseBase = 1;
+      card.push(h("div", { key: "title", className: "dtk-pop-title" }, t("report.timeTitle")));
+      var toolRows = report !== null && Array.isArray(report.toolBreakdown) ? report.toolBreakdown.slice(0, 4) : [];
+      if (phases.length === 0 || totalMs <= 0) {
+        card.push(h("div", { key: "hint", className: "dtk-pop-hint" }, t("report.noPhases")));
+      } else {
+        card.push(
+          h(
+            "div",
+            { key: "bar", className: "dtk-pop-bar" },
+            phases.map(function (phase) {
+              return h("span", {
+                key: phase.key,
+                className: "dtk-pop-seg",
+                style: { width: (phase.ms / phaseBase) * 100 + "%", background: phase.color },
+              });
+            })
+          )
+        );
+        card.push(
+          h(
+            "div",
+            { key: "rows", className: "dtk-pop-legend" },
+            phases.map(function (phase) {
+              return h(
+                "div",
+                { key: phase.key, className: "dtk-pop-row" },
+                h("span", null, h("i", { className: "dtk-pop-dot", style: { background: phase.color } }), phase.label),
+                h("b", null, shared.formatSeconds(phase.ms) + " · " + Math.round((phase.ms / phaseBase) * 100) + "%")
+              );
+            })
+          )
+        );
+        if (toolRows.length > 1) {
+          card.push(h("div", { key: "toolDetail", className: "dtk-pop-caption" }, t("report.toolDetail")));
+          card.push(
+            h(
+              "div",
+              { key: "toolDetailRows", className: "dtk-pop-legend" },
+              toolRows.map(function (item) {
+                return h(
+                  "div",
+                  { key: "tool-" + item.name, className: "dtk-pop-row" },
+                  h("span", null, item.name),
+                  h("b", null, shared.formatSeconds(item.ms))
+                );
+              })
+            )
+          );
+        }
+      }
+    }
+    popoverNode = createPortal(
+      h(
+        "div",
+        {
+          className: "dtk-pop",
+          "data-goodies-report-pop": "",
+        ref: function (node) {
+          if (node === null || cfg.popoverMotion === false || node.getAttribute("data-dtk-animated") === "1") return;
+          node.setAttribute("data-dtk-animated", "1");
+          if (typeof node.animate === "function") {
+            node.animate(
+              [
+                { opacity: 0, transform: "translateY(4px) scale(.985)" },
+                { opacity: 1, transform: "none" },
+              ],
+              { duration: 160, easing: "ease-out" }
+            );
+          }
+        },
+          style: cardStyle,
+          onPointerDown: function (event) {
+            event.stopPropagation();
+          },
+        },
+        card
+      ),
+      document.body
+    );
+  }
+
+  var haloNode =
+    halo !== null && typeof document !== "undefined"
+      ? createPortal(
+          h("div", {
+            className: "dtk-halo",
+            "data-goodies-halo": "",
+            style: { left: halo.left + "px", top: halo.top + "px", width: halo.width + "px", height: halo.height + "px" },
+          }),
+          document.body
+        )
+      : null;
+
   return h(
     React.Fragment,
     null,
-    breakdown.length > 0 && usageTarget !== null
+    haloNode,
+    popoverNode,
+    breakdown.length > 0
       ? createPortal(
           h(
             "span",
             {
-              className: "dtk-report",
+              className: "dtk-report dtk-enter",
               "data-goodies-turn-report": "usage",
+              "data-dtk-motion": cfg.popoverMotion === false ? "off" : "on",
               "data-turn": String(turnNumber),
+              onMouseEnter: showHalo,
+              onMouseLeave: hideHalo,
+              // The dots and the gaps belong to the same block: a click anywhere
+              // in it opens the card, not only on a figure.
+              onClick: function (event) {
+                if (event.target && event.target.closest && event.target.closest("[data-dtk-part]") !== null) return;
+                openPopover("usage", event.currentTarget);
+              },
             },
             withSeparators(breakdown, "usage")
           ),
-          usageTarget
+          usageHost
         )
       : null,
-    timing.length > 0 && timeTarget !== null
+    timing.length > 0
       ? createPortal(
           h(
             "span",
             {
-              className: "dtk-report",
+              className: "dtk-report dtk-enter",
               "data-goodies-turn-report": "timing",
+              "data-dtk-motion": cfg.popoverMotion === false ? "off" : "on",
               "data-turn": String(turnNumber),
             },
             withSeparators(timing, "timing")
           ),
-          timeTarget
+          timeHost
         )
       : null
   );
@@ -2743,6 +4010,16 @@ function SettingsCard(props) {
       fields: [field(t("settings.report"), t("settings.reportDesc"), seg("turnReport"))],
     },
     {
+      id: "motion",
+      title: t("settings.motionFeature"),
+      summary: stateWord(cfg.reportMotion !== false),
+      fields: [
+        field(t("settings.motion"), t("settings.motionDesc"), seg("reportMotion")),
+        field(t("settings.cardMotion"), t("settings.cardMotionDesc"), seg("popoverMotion")),
+        field(t("settings.hudMotion"), t("settings.hudMotionDesc"), seg("hudMotion")),
+      ],
+    },
+    {
       id: "notify",
       title: t("settings.notifyFeature"),
       summary: t("settings.notifySummary", {
@@ -2865,7 +4142,14 @@ function SettingsCard(props) {
  * @param {object} ctx - client plugin context.
  */
 export function apply(ctx) {
+  try {
+    window.__DSH_GOODIES_BUILD__ = "2026-11-06T05:25";
+    console.info("[dsh-goodies] build", window.__DSH_GOODIES_BUILD__);
+  } catch (error) {
+    // A read-only window is fine.
+  }
   ctx.effect(installStyles, "dsh-goodies: styles");
+  ctx.effect(installFooterWatch, "dsh-goodies: footer watch");
 
   var t = function (key, params) {
     return translate(activeLocale(ctx), key, params);

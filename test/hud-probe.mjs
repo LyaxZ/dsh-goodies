@@ -122,6 +122,7 @@ async function main() {
     inner.textContent = "深度求索中，用时 1 秒";
     row.appendChild(inner);
     document.body.appendChild(row);
+    row.scrollIntoView({ block: "center" });
     return true;
   })()`);
   await sleep(900);
@@ -152,6 +153,55 @@ async function main() {
     check("star is at least 12px", hud.starSize !== null && hud.starSize >= 12, hud.starSize);
   }
 
+  // The waveform is drawn from one reading per second, so give it two beats.
+  await sleep(2400);
+  const wave = await ev(`(() => {
+    const hud = document.querySelector("[data-goodies-live-speed]");
+    if (!hud) return null;
+    const bars = [...hud.querySelectorAll(".dtk-live-wave .dtk-live-bar")];
+    const speed = hud.querySelector(".dtk-live-metric.is-now");
+    const star = hud.querySelector(".dtk-live-star");
+    const waveBox = hud.querySelector(".dtk-live-wave");
+    return {
+      count: bars.length,
+      heights: bars.map((bar) => Math.round(bar.getBoundingClientRect().height)),
+      firstFlagged: bars.length > 0 && bars[0].classList.contains("is-last"),
+      waveLeft: waveBox ? Math.round(waveBox.getBoundingClientRect().left) : null,
+      waveRight: waveBox ? Math.round(waveBox.getBoundingClientRect().right) : null,
+      speedLeft: speed ? Math.round(speed.getBoundingClientRect().left) : null,
+      starRight: star ? Math.round(star.getBoundingClientRect().right) : null,
+      starLeft: star ? Math.round(star.getBoundingClientRect().left) : null,
+      waveWidth: waveBox ? Math.round(waveBox.getBoundingClientRect().width) : 0,
+    };
+  })()`);
+  check("waveform shows twenty readings", wave !== null && wave.count === 20, wave);
+  check("the wave keeps one width", wave !== null && Math.abs(wave.waveWidth - 78) <= 1, wave && wave.waveWidth);
+  const anchored = await ev(`(() => {
+    const hud = document.querySelector("[data-goodies-live-speed]");
+    const star = hud.querySelector(".dtk-live-star");
+    const total = hud.querySelector(".dtk-live-metric.is-total .dtk-live-value");
+    const before = { star: star.getBoundingClientRect().left, right: hud.getBoundingClientRect().right, width: total.getBoundingClientRect().width };
+    total.textContent = "1.2K";
+    const after = { star: star.getBoundingClientRect().left, right: hud.getBoundingClientRect().right, width: total.getBoundingClientRect().width };
+    return { before, after };
+  })()`);
+  if (wave !== null) {
+    check("the newest slot is the leftmost", wave.firstFlagged === true, wave);
+    check("waveform bars stay within the row height", Math.max(...wave.heights) <= 14 && Math.min(...wave.heights) >= 2, wave.heights);
+    check("the newest bar is marked", wave.firstFlagged === true);
+    check("the star leads the waveform", wave.starRight !== null && wave.waveLeft !== null && wave.starRight <= wave.waveLeft, wave);
+    check("the waveform sits before the reading", wave.waveRight !== null && wave.speedLeft !== null && wave.waveRight <= wave.speedLeft, wave);
+
+    const sizes = await ev(`(() => {
+      const hud = document.querySelector("[data-goodies-live-speed]");
+      const value = hud.querySelector(".dtk-live-metric.is-now .dtk-live-value");
+      const total = hud.querySelector(".dtk-live-metric.is-total .dtk-live-value");
+      return value && total ? { speed: value.style.width, total: total.style.width } : null;
+    })()`);
+    check("each reading sizes itself", sizes !== null && /^\d+ch$/.test(sizes.speed) && /^\d+ch$/.test(sizes.total), sizes);
+  }
+
+
   const samples = [];
   for (let index = 0; index < 6; index += 1) {
     samples.push(
@@ -169,7 +219,13 @@ async function main() {
   check("star reaches near full", numbers.length > 0 && Math.max(...numbers) > 0.9, samples);
 
   if (shotArg) {
-    const shot = await cdp.send("Page.captureScreenshot", { format: "png" });
+    const box = await ev(`(() => {
+      const hud = document.querySelector("[data-goodies-live-speed]");
+      if (!hud) return null;
+      const rect = hud.getBoundingClientRect();
+      return { x: Math.max(0, rect.left + window.scrollX - 18), y: Math.max(0, rect.top + window.scrollY - 10), width: rect.width + 36, height: rect.height + 20 };
+    })()`);
+    const shot = await cdp.send("Page.captureScreenshot", box ? { format: "png", clip: { ...box, scale: 3 } } : { format: "png" });
     mkdirSync(dirname(shotArg), { recursive: true });
     const { writeFileSync } = await import("node:fs");
     writeFileSync(shotArg, Buffer.from(shot.data, "base64"));

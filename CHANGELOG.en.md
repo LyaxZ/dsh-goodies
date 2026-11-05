@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.2.0] - 2026-11-06
+
+### Added
+
+- **Live speed waveform**: a per-second bar waveform during a turn, rising and falling smoothly and narrowing when the numbers grow.
+- **Per-answer report**: input, output, cache, total time and speed under each answer; clicking a figure opens its card.
+- **Speed card**: peak, average and the per-second curve, drawn from the recorded readings.
+- **Time-split card**: first token, thinking, waiting, reply, tools and other, with a per-tool breakdown.
+- **Motion settings**: a new section with separate switches for row, card and HUD motion, all on by default.
+- **Send button feedback**: a soft glow on hover and a small press response.
+
+### Changed
+
+- **The report under a narrow window** shares the width evenly instead of hiding figures one by one.
+- **Report order**: usage, input/output/cache, duration and speed, then the clock.
+
+### Compatibility
+
+- Supports DSH 0.2.2-rc.1.
+
 Notable changes to **dsh-goodies** land here. Each entry is compared against the previous release only; internal iteration stays out. The Chinese edition lives in [CHANGELOG.md](CHANGELOG.md).
 
 ## [0.1.13] - 2026-11-03

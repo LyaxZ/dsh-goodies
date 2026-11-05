@@ -18,6 +18,9 @@ var DEFAULTS = Object.freeze({
   effortShift: true,
   liveSpeed: true,
   turnReport: true,
+  reportMotion: true,
+  popoverMotion: true,
+  hudMotion: true,
   completionNotify: false,
   notifySound: false,
   notifyMinSeconds: 0,
@@ -27,6 +30,9 @@ var BOOLEAN_FIELDS = Object.freeze([
   "effortShift",
   "liveSpeed",
   "turnReport",
+  "reportMotion",
+  "popoverMotion",
+  "hudMotion",
   "completionNotify",
   "notifySound",
 ]);
@@ -218,9 +224,19 @@ function readTurnReport(nodes, turn) {
   var turnNumber = normalizeTurn(turn);
   if (turnNumber === null) return null;
   var steps = [];
+  // Tool results carry no turn of their own, so the turn's seq window stands in
+  // for it: every tool call of the turn sits between its first and last step.
+  var minSeq = null;
+  var maxSeq = null;
   for (var index = 0; index < nodes.length; index += 1) {
     var node = nodes[index];
-    if (node && node.kind === "assistant" && node.turn === turnNumber) steps.push(node);
+    if (node && node.kind === "assistant" && node.turn === turnNumber) {
+      steps.push(node);
+      if (typeof node.seq === "number") {
+        if (minSeq === null || node.seq < minSeq) minSeq = node.seq;
+        if (maxSeq === null || node.seq > maxSeq) maxSeq = node.seq;
+      }
+    }
   }
   if (steps.length === 0) return null;
 
@@ -296,12 +312,89 @@ function readTurnReport(nodes, turn) {
     }
   }
   var toolMs = 0;
+  var toolBreakdown = [];
   for (var toolIndex = 0; toolIndex < nodes.length; toolIndex += 1) {
     var toolNode = nodes[toolIndex];
-    if (!toolNode || toolNode.kind !== "tool-result" || toolNode.turn !== turnNumber) continue;
+    if (!toolNode || toolNode.kind !== "tool-result") continue;
+    var inTurn =
+      toolNode.turn === turnNumber ||
+      (typeof toolNode.seq === "number" && minSeq !== null && maxSeq !== null && toolNode.seq >= minSeq && toolNode.seq <= maxSeq) ||
+      (typeof toolNode.time === "number" &&
+        start !== null &&
+        end !== null &&
+        toolNode.time >= start - 500 &&
+        toolNode.time <= end + 500);
+    if (!inTurn) continue;
     if (typeof toolNode.callTime === "number" && typeof toolNode.time === "number" && toolNode.time > toolNode.callTime) {
-      toolMs += toolNode.time - toolNode.callTime;
+      var spent = toolNode.time - toolNode.callTime;
+      toolMs += spent;
+      var toolName = typeof toolNode.name === "string" && toolNode.name.length > 0 ? toolNode.name : "tool";
+      var known = null;
+      for (var listIndex = 0; listIndex < toolBreakdown.length; listIndex += 1) {
+        if (toolBreakdown[listIndex].name === toolName) known = toolBreakdown[listIndex];
+      }
+      if (known === null) toolBreakdown.push({ name: toolName, ms: spent });
+      else known.ms += spent;
     }
+  }
+  toolBreakdown.sort(function (left, right) {
+    return right.ms - left.ms;
+  });
+  // Split the same span the report already measures into the three phases the
+  // popover draws: waiting for the first token, running tools, and writing.
+  var thinkingMs = 0;
+  var headsMs = 0;
+  var firstHeadMs2 = null;
+  var generationMs = 0;
+  // The node carries the message blocks but no per-block timestamps; their
+  // lengths are the only evidence of how much of the span each kind took.
+  var blockThinkingMs = 0;
+  var blockReplyMs = 0;
+  var blockReasoningChars = 0;
+  var blockReplyChars = 0;
+  var hasBlockSplit = false;
+  for (var phaseIndex = 0; phaseIndex < steps.length; phaseIndex += 1) {
+    var phaseTiming = steps[phaseIndex] && steps[phaseIndex].timing;
+    if (!phaseTiming) continue;
+    if (typeof phaseTiming.stepStartTime === "number" && typeof phaseTiming.firstTokenTime === "number") {
+      var headMs = Math.max(0, phaseTiming.firstTokenTime - phaseTiming.stepStartTime);
+      thinkingMs += headMs;
+      headsMs += headMs;
+      if (firstHeadMs2 === null) firstHeadMs2 = headMs;
+    }
+    if (typeof phaseTiming.completedTime === "number") {
+      // Without a first-token stamp the whole step span is all we have; the
+      // block lengths still split it into thinking and writing.
+      var spanBase =
+        typeof phaseTiming.firstTokenTime === "number" ? phaseTiming.firstTokenTime : phaseTiming.stepStartTime;
+      var spanMs =
+        typeof spanBase === "number" ? Math.max(0, phaseTiming.completedTime - spanBase) : 0;
+      if (typeof phaseTiming.firstTokenTime === "number") generationMs += spanMs;
+      var reasoningChars = 0;
+      var replyChars = 0;
+      var blocks = steps[phaseIndex] && Array.isArray(steps[phaseIndex].blocks) ? steps[phaseIndex].blocks : [];
+      for (var blockIndex = 0; blockIndex < blocks.length; blockIndex += 1) {
+        var block = blocks[blockIndex];
+        if (!block || typeof block.text !== "string") continue;
+        var blockKind = block.kind || block.type;
+        if (blockKind === "reasoning") reasoningChars += block.text.length;
+        else if (blockKind === "text") replyChars += block.text.length;
+      }
+      if (reasoningChars + replyChars > 0) {
+        hasBlockSplit = true;
+        blockReasoningChars += reasoningChars;
+        blockReplyChars += replyChars;
+        blockThinkingMs += (spanMs * reasoningChars) / (reasoningChars + replyChars);
+        blockReplyMs += (spanMs * replyChars) / (reasoningChars + replyChars);
+      }
+    }
+  }
+  var otherMs = durationMs !== null ? Math.max(0, durationMs - thinkingMs - generationMs - toolMs) : 0;
+  // A turn recorded without a first-token or finish stamp cannot be split; the
+  // part that is not tools is still writing, so it must not read as "other".
+  if (durationMs !== null && generationMs === 0 && durationMs > 0) {
+    generationMs = Math.max(0, durationMs - thinkingMs - toolMs);
+    otherMs = Math.max(0, durationMs - thinkingMs - generationMs - toolMs);
   }
   var busyMs = stepMs > 0 ? stepMs : durationMs !== null ? Math.max(0, durationMs - toolMs) : 0;
   var approxTps = tps === null && sampledTps === null && tokens !== null && tokens > 0 && busyMs > 0 ? tokens / (busyMs / 1000) : null;
@@ -314,6 +407,18 @@ function readTurnReport(nodes, turn) {
     tps: tps,
     sampledTps: sampledTps,
     busyMs: busyMs,
+    thinkingMs: thinkingMs,
+    headsMs: headsMs,
+    firstHeadMs: firstHeadMs2,
+    blockThinkingMs: Math.round(blockThinkingMs),
+    blockReplyMs: Math.round(blockReplyMs),
+    hasBlockSplit: hasBlockSplit,
+    blockReasoningChars: blockReasoningChars,
+    blockReplyChars: blockReplyChars,
+    toolMs: toolMs,
+    toolBreakdown: toolBreakdown,
+    generationMs: generationMs,
+    otherMs: otherMs,
     approxTps: approxTps,
   };
 }
@@ -557,7 +662,7 @@ div[role="menu"][data-dtk-effort-menu]{position:fixed!important;opacity:0!import
 .dtk-effort-panel .dtk-effort-track{position:relative;height:var(--dtk-track);border-radius:calc(var(--dtk-track) / 2);corner-shape:round;background:color-mix(in srgb,var(--dsw-alias-label-secondary) 20%,transparent);cursor:grab;touch-action:none;outline:none;overflow:visible}
 .dtk-effort-panel .dtk-effort-track[data-drag="true"]{cursor:grabbing}
 .dtk-effort-panel .dtk-effort-track:focus-visible{outline:2px solid var(--dtk-tone);outline-offset:2px}
-.dtk-effort-panel .dtk-effort-glow{position:absolute;inset:0;background:linear-gradient(180deg,rgba(255,255,255,.16),rgba(255,255,255,0) 62%);pointer-events:none;overflow:hidden}
+.dtk-effort-panel .dtk-effort-glow{position:absolute;inset:0;background:linear-gradient(180deg,rgba(255,255,255,.16),rgba(255,255,255,0) 62%);pointer-events:none}
 .dtk-effort-panel .dtk-effort-glow::after{content:"";position:absolute;top:0;bottom:0;left:-45%;width:45%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.42),transparent);transform:skewX(-14deg);animation:dtk-fill-sheen 2.4s ease-in-out infinite}
 .dtk-effort-panel .dtk-effort-sparks{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:2;clip-path:inset(0 100% 0 0)}
 .dtk-effort-panel .dtk-effort-spark{position:absolute;left:var(--x);top:var(--y);width:var(--size,2px);height:var(--size,2px);border-radius:50%;background:#fff;box-shadow:0 0 3px rgba(219,234,254,.9);opacity:0;animation:dtk-spark-meteor calc(var(--spark-duration,2.4s) * var(--dur,1)) linear infinite;animation-delay:var(--delay,0s)}
@@ -574,16 +679,52 @@ body[data-ds-dark-theme] .dtk-effort-panel .dtk-effort-thumb{background:#e9edf5;
 body[data-ds-dark-theme] .dtk-effort-panel .dtk-effort-spark{background:#dbeafe}
 @keyframes dtk-fill-sheen{0%{left:-45%}55%{left:110%}100%{left:110%}}
 @media (prefers-reduced-motion:reduce){.dtk-effort-panel,.dtk-effort-panel .dtk-effort-slider{animation:none}.dtk-effort-panel .dtk-effort-fill,.dtk-effort-panel .dtk-effort-thumb{transition:none}.dtk-effort-panel .dtk-effort-glow::after{animation:none;opacity:0}}
+/* The footer's flexible spacer is what opens a big blank in the row; with
+   every child fixed, the figures stay compact and the clock follows them. */
 .dtk-live{display:inline-flex;align-items:center;gap:5px;margin-left:auto;flex:none;padding:0;border:0;background:none;min-width:0;color:#2563eb;font:inherit;font-variant-numeric:tabular-nums;white-space:nowrap;user-select:none}
 .dtk-live-star{flex:none;width:13px;height:13px;background:#2563eb;clip-path:polygon(50% 0,64.5% 35.5%,100% 50%,64.5% 64.5%,50% 100%,35.5% 64.5%,0 50%,35.5% 35.5%)}
-.dtk-live-metric{display:inline-flex;align-items:center;gap:5px;min-width:0;line-height:inherit}
-.dtk-live-value{color:#2563eb;font-weight:600;font-size:inherit;line-height:inherit;min-width:0;text-align:left;transition:color .2s ease}
+.dtk-live-metric{display:inline-flex;align-items:center;gap:5px;min-width:0;line-height:inherit;flex:none}
+.dtk-live-metric.is-now .dtk-live-value{display:inline-flex;justify-content:flex-end;text-align:right;transition:width .16s ease-out}
+.dtk-live{position:relative}
+
+@keyframes dtk-demo-breathe{0%,100%{transform:scaleY(.35);opacity:.45}50%{transform:scaleY(1);opacity:1}}
+.dtk-live-value,.dtk-live-metric.is-total .dtk-live-value{display:inline-flex;justify-content:flex-end;text-align:right;transition:width .16s ease-out}
 .dtk-live-unit{font-size:inherit;line-height:inherit;color:#2563eb;opacity:.75}
 .dtk-live-dot-sep{flex:none;font-size:inherit;line-height:inherit;color:#2563eb;opacity:.5}
 
-.dtk-slot{display:inline-flex;align-items:center;min-width:0;flex:0 1 auto;overflow:hidden}
-.dtk-report{display:inline-flex;align-items:center;gap:0;margin:0;padding:0;color:inherit;font:inherit;font-size:calc(var(--dsh-content-font-size-secondary,13px) - 1px);line-height:calc(24px + var(--dsh-content-font-delta,0px));font-variant-numeric:tabular-nums;opacity:1;white-space:nowrap;flex:0 1 auto;min-width:0;overflow:hidden}
+.dtk-slot{display:inline-flex;align-items:center;min-width:0;flex:0 1 auto;margin:-2px -2px;padding:2px 8px;border-radius:8px;overflow:hidden}
+.dtk-slot:not([data-dtk-open="1"]):hover{background:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-l2,#ececf0))}
+.dtk-slot[data-dtk-open="1"]{background:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-l2,#ececf0))}
+.dtk-report{display:inline-flex;user-select:none;-webkit-user-select:none;align-items:center;gap:0;margin:0;padding:0;color:inherit;font:inherit;font-size:calc(var(--dsh-content-font-size-secondary,13px) - 1px);line-height:calc(24px + var(--dsh-content-font-delta,0px));font-variant-numeric:tabular-nums;opacity:1;white-space:nowrap;flex:0 1 auto;min-width:0;overflow:hidden}
+/* The report settles in when its turn finishes: a short rise with a fade, each
+   figure a beat after the one before it. Only opacity and transform animate, so
+   the fit pass still measures the final size. */
+@keyframes dtk-report-in{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}
+@keyframes dtk-figure-in{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}
+.dtk-report-sep{animation:none}
+
 .dtk-report-part{white-space:nowrap}
+.dtk-report-part.is-clickable{cursor:pointer}
+/* The hover pill is a fixed layer under the figures: the report itself clips
+   its content for the fit pass, so a background there would be cut square. */
+.dtk-halo{position:fixed;z-index:6;border-radius:8px;background:rgba(127,127,127,.10);pointer-events:none}
+.dtk-report[data-goodies-turn-report="usage"]{cursor:pointer}
+.dtk-report[data-goodies-turn-report="timing"] .dtk-report-part.is-clickable{cursor:pointer}
+.dtk-report-part.is-clickable:focus-visible{outline:2px solid #2563eb;outline-offset:2px}
+@keyframes dtk-pop-in{from{opacity:0;transform:translateY(4px) scale(.985)}to{opacity:1;transform:none}}
+@keyframes dtk-panel-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.dtk-pop{position:fixed;z-index:1100;--dsw-elevation-stroke-color:var(--dsw-alias-border-l1,rgba(0,0,0,.08));box-sizing:border-box;padding:16px;border-radius:var(--dsw-radius-lg,12px);background:var(--dsw-specific-menu,#f5f6f7);backdrop-filter:var(--dsw-menu-backdrop-filter,blur(20px));-webkit-backdrop-filter:var(--dsw-menu-backdrop-filter,blur(20px));box-shadow:var(--dsw-elevation-prominent,0 16px 40px rgba(0,0,0,.18));color:var(--dsw-alias-label-secondary,#4b5563);border:0;font:inherit;font-size:13px;line-height:18px;text-align:left;white-space:normal}
+.dtk-pop-title{font-weight:600;font-size:14px;margin-bottom:8px}
+.dtk-pop-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.dtk-pop-row b{font-weight:600;font-variant-numeric:tabular-nums}
+.dtk-pop-caption{margin-top:8px;color:var(--dsw-alias-label-tertiary,#7a8394);font-size:11px}
+.dtk-pop-hint{color:var(--dsw-alias-label-tertiary,#7a8394);font-size:11px}
+.dtk-pop-curve{display:block;height:32px;margin-top:6px;padding:0 4px;box-sizing:border-box;overflow:hidden}
+.dtk-pop-curve-bar{flex:1 1 0;min-width:1px;border-radius:1px;background:#2563eb;opacity:.75}
+.dtk-pop-bar{display:flex;height:8px;border-radius:4px;overflow:hidden;margin:6px 0 8px;background:rgba(0,0,0,.06)}
+.dtk-pop-seg{height:100%}
+.dtk-pop-legend{display:flex;flex-direction:column;gap:3px}
+.dtk-pop-dot{display:inline-block;width:7px;height:7px;border-radius:2px;margin-right:6px;vertical-align:middle}
 .dtk-report-sep{margin:0 6px;color:var(--dsw-alias-separator-primary)}
 .dtk-report[data-goodies-turn-report]{max-width:100%}
 /* The figures themselves give way: the report measures the room it has been left
@@ -624,8 +765,24 @@ body[data-ds-dark-theme] .dtk-effort-panel .dtk-effort-spark{background:#dbeafe}
 .dtk-fieldAction{flex:none;appearance:none;font:inherit;cursor:pointer;background:0 0;border:0;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;padding:0}
 .dtk-fieldAction:hover:not(:disabled){color:var(--dsw-alias-label-primary)}
 .dtk-fieldAction:disabled{opacity:.4;cursor:default}
-@media (prefers-reduced-motion: reduce){
 
+@keyframes dtk-bump{0%{transform:scale(1.14)}60%{transform:scale(.98)}100%{transform:scale(1)}}
+/* The send button: a soft coloured shadow rather than a hard ring, and the
+   depth follows the button's own enabled state. */
+button[aria-label*="发送"],button[aria-label*="Send"],button.uV2eYG_primary{filter:drop-shadow(0 0 0 rgba(29,78,216,0));transition:transform .16s cubic-bezier(.2,.8,.3,1),box-shadow .18s ease,filter .2s ease}
+button[aria-label*="发送"]:not(:disabled):hover,button[aria-label*="Send"]:not(:disabled):hover,button.uV2eYG_primary:not(:disabled):hover{filter:drop-shadow(0 0 5px rgba(29,78,216,.75)) !important;box-shadow:none !important}
+button[aria-label*="发送"]:disabled:hover,button[aria-label*="Send"]:disabled:hover,button.uV2eYG_primary:disabled:hover{filter:drop-shadow(0 0 5px rgba(96,165,250,.85)) !important;box-shadow:none !important}
+button[aria-label*="发送"]:not(:disabled):hover:active,button[aria-label*="Send"]:not(:disabled):hover:active,button.uV2eYG_primary:not(:disabled):hover:active{transform:scale(.95) !important;filter:drop-shadow(0 0 4px rgba(29,78,216,.6)) !important;box-shadow:none !important}
+button[aria-label*="发送"]:disabled:hover:active,button[aria-label*="Send"]:disabled:hover:active,button.uV2eYG_primary:disabled:hover:active{transform:scale(.97) !important;filter:drop-shadow(0 0 4px rgba(96,165,250,.7)) !important;box-shadow:none !important}
+.dtk-live-wave2{min-width:44px;max-width:78px;box-sizing:border-box}
+.dtk-live-wave{display:inline-flex;align-items:flex-end;justify-content:flex-start;gap:2px;height:14px;margin-left:6px;margin-right:2px;overflow:hidden;font-weight:600;transition:width .16s ease-out}
+@keyframes dtk-bar-grow{from{transform:scaleY(.35);opacity:.5}to{transform:scaleY(1)}}
+.dtk-live-bar{flex:none;width:2px;min-height:2px;border-radius:1px;background:#1d4ed8;opacity:.9}
+.dtk-live-bar.is-empty{opacity:.2}
+.dtk-live-bar.is-last:not(.is-empty){opacity:1}
+@media (prefers-reduced-motion: reduce){
+.dtk-live-bar{transition:height .3s cubic-bezier(.2,.8,.3,1),opacity .3s ease}
+.dtk-live:not(.dtk-live-motion) .dtk-live-bar{transition:none}
 }
 `;
 

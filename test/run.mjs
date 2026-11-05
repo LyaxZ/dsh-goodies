@@ -75,13 +75,19 @@ const orderMatch = reportSource.match(/var REPORT_DROP_ORDER = \[([^\]]+)\]/);
 equal(
   "figures give way in the agreed order",
   orderMatch ? orderMatch[1].replace(/["\s]/g, "") : "",
-  "cache,in,out,ttft,total,speed"
+  ""
 );
 check(
   "figures are dropped because the row is full",
-  reportSource.includes("drawn[reportIndex].scrollWidth > drawn[reportIndex].clientWidth + 2") &&
+  reportSource.includes('report.classList.add("dtk-measuring")') &&
+    reportSource.includes("scroll > client + 2") &&
     reportSource.includes("part.style.display = \"none\"") &&
     reportSource.includes('reportSlot.style.display = alive ? "" : "none"')
+);
+check(
+  "every figure keeps its place",
+  reportSource.includes("var REPORT_DROP_ORDER = [];") &&
+    reportSource.includes("figure keeps its place")
 );
 check(
   "a dropped figure takes its dot with it",
@@ -302,6 +308,43 @@ equal("tokens ten thousands", shared.formatTokens(12345), "12K");
 equal("tokens millions", shared.formatTokens(3582000), "3.6M");
 equal("tokens rounding to million", shared.formatTokens(999600), "1M");
 
+// -- report phases ----------------------------------------------------------
+
+const phaseNodes = [
+  { kind: "assistant", turn: 7, timing: { stepStartTime: 1000, firstTokenTime: 3000, completedTime: 6000 }, usage: { outputTokens: 100 } },
+  { kind: "tool-result", turn: 7, callTime: 6000, time: 8000 },
+  { kind: "assistant", turn: 7, timing: { stepStartTime: 8000, firstTokenTime: 8500, completedTime: 10000 }, usage: { outputTokens: 50 } },
+];
+const phaseReport = shared.readTurnReport(phaseNodes, 7);
+equal("phases: waiting for the first token", phaseReport.thinkingMs, 2500);
+equal("phases: writing time", phaseReport.generationMs, 4500);
+equal("phases: tool time", phaseReport.toolMs, 2000);
+equal("phases: leftover time", phaseReport.otherMs, 0);
+equal("phases: the whole turn", phaseReport.durationMs, 9000);
+
+{
+  // Tool results carry no turn of their own; the step seq window decides.
+  const seqNodes = [
+    { kind: "assistant", turn: 9, seq: 10, timing: { stepStartTime: 0, firstTokenTime: 1000, completedTime: 2000 }, usage: { outputTokens: 50 } },
+    { kind: "tool-result", seq: 11, callTime: 2000, time: 5000 },
+    { kind: "assistant", turn: 9, seq: 12, timing: { stepStartTime: 5000, firstTokenTime: 5500, completedTime: 7000 }, usage: { outputTokens: 30 } },
+    { kind: "tool-result", seq: 30, callTime: 7000, time: 9000 },
+  ];
+  const seqReport = shared.readTurnReport(seqNodes, 9);
+  equal("tool results join the turn by seq", seqReport.toolMs, 3000);
+}
+{
+  // Historical turns carry no first-token stamp. The remainder is writing time,
+  // not an unexplained "other" slice.
+  const plain = [
+    { kind: "assistant", turn: 8, timing: { stepStartTime: 0, completedTime: 5000 }, usage: { outputTokens: 80 } },
+    { kind: "tool-result", turn: 8, callTime: 5000, time: 6000 },
+  ];
+  const plainReport = shared.readTurnReport(plain, 8);
+  equal("phases fall back to writing", plainReport.generationMs, 4000);
+  equal("phases leave nothing unexplained", plainReport.otherMs, 0);
+}
+
 // -- notification gate ------------------------------------------------------
 
 equal("notify long turn", shared.shouldNotify({ elapsedMs: 8000, minMs: 5000 }), true);
@@ -325,6 +368,8 @@ equal("no overrides keeps the document", JSON.stringify(shared.mergeOverrides({ 
 for (const selector of ["data-dtk-effort-menu", ".dtk-effort-fill", ".dtk-effort-thumb", ".dtk-effort-spark", ".dtk-live", ".dtk-live-star", ".dtk-report", ".dtk-card", ".dtk-seg"]) {
   check(`css has ${selector}`, shared.CSS.includes(selector));
 }
+check("css has the hover pill layer", shared.CSS.includes(".dtk-halo") && shared.CSS.includes("border-radius:8px"));
+check("css has the report popover", shared.CSS.includes(".dtk-pop") && shared.CSS.includes(".dtk-pop-bar"));
 check("css respects reduced motion", shared.CSS.includes("prefers-reduced-motion"));
 
 
@@ -335,12 +380,37 @@ const [sharedSource, clientSource, hostSource] = await Promise.all([
   readFile(join(ROOT, "src/client.js"), "utf8"),
   readFile(join(ROOT, "src/index.mjs"), "utf8"),
 ]);
+check("the live hook resolves a missing session id", clientSource.includes("sessionId = activeSessionId"));
+{
+  // The node knows block lengths, not block times; the step span splits by length.
+  const splitNodes = [
+    {
+      kind: "assistant",
+      turn: 11,
+      timing: { stepStartTime: 0, firstTokenTime: 1000, completedTime: 5000 },
+      blocks: [
+        { type: "reasoning", text: "x".repeat(100) },
+        { type: "text", text: "y".repeat(300) },
+      ],
+      usage: { outputTokens: 80 },
+    },
+  ];
+  const splitReport = shared.readTurnReport(splitNodes, 11);
+  equal("block split is used", splitReport.hasBlockSplit, true);
+  equal("block split thinking", splitReport.blockThinkingMs, 1000);
+  equal("block split reply", splitReport.blockReplyMs, 3000);
+}
+check("the time split has several kinds", clientSource.includes('t("report.reasoning")') && clientSource.includes('t("report.toolArgs")') && clientSource.includes('t("report.reply")'));
+check("the report paints its hover pill outside the clip", clientSource.includes("data-goodies-halo") && clientSource.includes("showHalo"));
+check("report figures are clickable", clientSource.includes("data-goodies-report-pop") && clientSource.includes("report.openHint"));
 // Behaviour contracts for the slider rail and the HUD readout.
 check("passed level dots are hidden", clientSource.includes('tick <= safe ? "none"'));
 check("particles cover the rail height", clientSource.includes("--y") && /\(8 \+ Math\.random\(\) \* 84\)/.test(clientSource));
 check("hud total uses compact units", clientSource.includes("shared.formatTokens(shownTotal)"));
 check("hud speed survives a lagging usage sample", clientSource.includes("remote.ok === false ? estimate : remote.tokens"));
 check("css fades the panel out", shared.CSS.includes(".dtk-effort-panel--closing"));
+check("the hud draws a speed waveform", shared.CSS.includes(".dtk-live-wave") && shared.CSS.includes(".dtk-live-bar") && shared.CSS.includes(".dtk-live-bar.is-empty") && shared.CSS.includes(".dtk-live-metric.is-now .dtk-live-value"));
+check("the waveform keeps one reading per second", clientSource.includes("liveTurnSeries") && clientSource.includes("seriesBucket"));
 check("panel fade is not instant", /\.dtk-effort-content\{[^}]*transition:opacity \.3[0-9]?s/.test(shared.CSS));
 check("closing panels are discarded, not dropped", clientSource.includes("discardEffortPanel") && clientSource.includes("closeEffortPanel(menu)"));
 check("the panel offers a way back", clientSource.includes("dtk-effort-back") && shared.CSS.includes(".dtk-effort-back"));

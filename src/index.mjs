@@ -66,7 +66,19 @@ export const Config = volatileWhenSupported(
         .boolean()
         .default(true)
         .description("Show an approximate live tokens/second reading while an answer streams"),
-      turnReport: z
+      reportMotion: z
+    .boolean()
+    .default(true)
+    .description("Animate the turn report in when a turn ends (ignores the system reduce-motion setting)"),
+  hudMotion: z
+    .boolean()
+    .default(true)
+    .description("Smooth rise and fall for the live speed bars"),
+  popoverMotion: z
+    .boolean()
+    .default(true)
+    .description("Animate the speed and time cards when they open and close"),
+  turnReport: z
         .boolean()
         .default(true)
         .description("Show TTFT, wall time and speed at the end of each turn"),
@@ -137,9 +149,22 @@ function createLiveState() {
     startedAt: 0,
     lastAt: 0,
     active: false,
+    /** Weighted tokens per second of this stream: the live waveform source. */
+    series: [],
+    /** Streaming time per chunk kind, so the report can split thinking/reply/tools. */
+    timed: { reasoning: 0, text: 0, toolArgs: 0 },
+    lastChunkAt: 0,
+    lastKind: "",
     /** Tool names already counted, so a repeated frame is not double-counted. */
     tools: new Map(),
   });
+  const record = (state, now, amount) => {
+    if (!(amount > 0) || !(state.startedAt > 0)) return;
+    const bucket = Math.floor((now - state.startedAt) / 1000);
+    if (bucket < 0) return;
+    while (state.series.length <= bucket && state.series.length < 300) state.series.push(0);
+    if (bucket < state.series.length) state.series[bucket] += amount;
+  };
   const weight = (text) => {
     let total = 0;
     for (const ch of text) {
@@ -176,6 +201,40 @@ function createLiveState() {
       sessions.set(id, state);
       state.active = true;
       if (state.startedAt === 0) state.startedAt = now;
+      // Attribute the gap before this chunk to the kind of chunk that opens it:
+      // reasoning, prose, or tool-call arguments. Long idle gaps are clamped so
+      // waiting for the user cannot look like generation.
+      var chunkType = chunk && chunk.type;
+      var blockType = chunkType === "block" && chunk.block ? chunk.block.type : "";
+      var kind =
+        chunkType === "reasoning-delta" || blockType === "reasoning"
+          ? "reasoning"
+          : chunkType === "text-delta" || blockType === "text"
+            ? "text"
+            : chunkType === "tool-call-delta"
+              ? "toolArgs"
+              : "";
+      // The gap belongs to the stream that was running before this chunk:
+      // the time between two reasoning chunks is reasoning, and the time
+      // before the first text chunk is the tail of the reasoning.
+      // A completed block was produced during the silence before it, so that
+      // gap is the block's own generation time. A delta is the opposite: it
+      // extends the stream that was already running.
+      var isBlock = chunkType === "block" && kind !== "";
+      if (isBlock) {
+        if (state.lastChunkAt > 0) {
+          var blockGap = now - state.lastChunkAt;
+          if (blockGap > 0) state.timed[kind] += Math.min(blockGap, 120000);
+        }
+      } else if (state.lastChunkAt > 0 && state.lastKind !== "") {
+        var gap = now - state.lastChunkAt;
+        var gapCap = state.lastKind === "toolArgs" ? 2000 : 15000;
+        if (gap > 0) state.timed[state.lastKind] += Math.min(gap, gapCap);
+      }
+      if (kind !== "") {
+        state.lastChunkAt = now;
+        state.lastKind = kind;
+      }
       if (chunk && chunk.type === "usage" && chunk.usage && typeof chunk.usage.outputTokens === "number") {
         state.usage = Math.max(state.usage, Math.round(chunk.usage.outputTokens));
         state.lastAt = now;
@@ -193,7 +252,9 @@ function createLiveState() {
         }
         const args = typeof chunk.argumentsDelta === "string" ? chunk.argumentsDelta : "";
         if (args.length === 0) return;
-        state.estimated += weight(args);
+        const toolAmount = weight(args);
+        state.estimated += toolAmount;
+        record(state, now, toolAmount);
         state.lastAt = now;
         return;
       }
@@ -201,9 +262,13 @@ function createLiveState() {
         chunk && (chunk.type === "text-delta" || chunk.type === "reasoning-delta") && typeof chunk.text === "string"
           ? chunk.text
           : "";
-      if (text.length === 0) return;
+      var blockText =
+        chunkType === "block" && chunk.block && typeof chunk.block.text === "string" ? chunk.block.text : "";
+      if (text.length === 0 && blockText.length === 0) return;
       if (state.firstAt === 0) state.firstAt = now;
-      state.estimated += weight(text);
+      const textAmount = weight(text.length > 0 ? text : blockText);
+      state.estimated += textAmount;
+      record(state, now, textAmount);
       state.lastAt = now;
     },
     end(id) {
@@ -224,6 +289,14 @@ function createLiveState() {
           startedAt: state.startedAt,
           firstAt: state.firstAt,
           lastAt: state.lastAt,
+          // The last two minutes of weighted tokens per second: enough for
+          // the report's curve even when the page was in the background.
+          series: state.series.slice(-120),
+          timed: {
+            reasoning: Math.round(state.timed.reasoning),
+            text: Math.round(state.timed.text),
+            toolArgs: Math.round(state.timed.toolArgs),
+          },
         };
       }
       return { at: Date.now(), sessions: out };
