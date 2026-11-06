@@ -2,6 +2,12 @@
 
 Notable changes to **dsh-goodies** land here. Each entry is compared against the previous release only; internal iteration stays out. The Chinese edition lives in [CHANGELOG.md](CHANGELOG.md).
 
+## [0.2.1] - 2026-11-06
+
+### Changed
+
+- **Plugin copy**: the market card and repository summary now name the live HUD, the report cards and the interface motion; the display name is "Goodies (dsh-goodies)".
+
 ## [0.2.0] - 2026-11-06
 
 ### Added

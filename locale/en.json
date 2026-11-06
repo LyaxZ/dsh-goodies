@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "DSH Goodies",
-    "description": "A small collection: an effort slider, live tokens/second, and per-turn reports."
+    "title": "Goodies (dsh-goodies)",
+    "description": "A small collection: an effort slider, live HUD, per-answer reports, completion notices and UI motion. Front-end only, each switch independent, no request changes and no data leaves the browser."
   }
 }

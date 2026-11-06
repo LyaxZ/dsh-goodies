@@ -2,7 +2,7 @@
 
 > **English** | [中文](README.md)
 
-A small set of conveniences for the DeepSeek Harness (DSH) Web GUI: an effort slider in the model menu, a live speed and turn-total readout next to the running status, a per-answer report, and a completion notification when a turn finishes. Each feature has its own switch; all of them are interface-only and never change model requests, session content, or send data anywhere.
+A set of small conveniences for the DeepSeek Harness (DSH) Web GUI: an effort slider in the model menu, a live speed and turn-total readout next to the running status, a per-answer report of usage and duration (with speed and time-split cards), a completion notification when a turn finishes, interface motion (row, card and HUD waveform), and send-button feedback. Each feature has its own switch; all of them are interface-only and never change model requests, session content, or send data anywhere.
 
 ## Features
 
@@ -16,7 +16,7 @@ A small set of conveniences for the DeepSeek Harness (DSH) Web GUI: an effort sl
 
 | Plugin version | Supported DSH versions |
 | --- | --- |
-| **0.2.x** (latest, 0.2.0) | 0.2.1-rc.1 through 0.2.1-rc.4, 0.2.2-alpha.2, 0.2.2-alpha.3, 0.2.2-rc.1 |
+| **0.2.x** (latest, 0.2.1) | 0.2.1-rc.1 through 0.2.1-rc.4, 0.2.2-alpha.2, 0.2.2-alpha.3, 0.2.2-rc.1 |
 
 ## Install
 

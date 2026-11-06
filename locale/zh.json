@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "DSH Goodies",
-    "description": "小功能合集：思考强度滑块、实时 tok/s、每条回答成绩单。"
+    "title": "小功能合集（dsh-goodies）",
+    "description": "小功能合集：思考强度滑块、实时HUD、每条回答的成绩单、完成通知与界面动效。只改前端显示，可逐项开关，不改模型请求，也不上传数据。"
   }
 }
