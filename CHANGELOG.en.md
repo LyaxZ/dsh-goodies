@@ -7,6 +7,8 @@ Notable changes to **dsh-goodies** land here. Each entry is compared against the
 ### Changed
 
 - **Send button feedback** has its own switch under Motion enhancements; turning it off removes the hover glow and the press response.
+- **Live HUD**: the settings section is renamed from "Live reading", and a "token speed waveform" switch is added.
+- **Effort slider**: the native menu's grouped items are recognised again, so the slider is not blocked by a wrapper.
 
 ## [0.2.1] - 2026-11-06
 

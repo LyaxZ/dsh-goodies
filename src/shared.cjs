@@ -22,6 +22,7 @@ var DEFAULTS = Object.freeze({
   popoverMotion: true,
   hudMotion: true,
   sendMotion: true,
+  hudWave: true,
   completionNotify: false,
   notifySound: false,
   notifyMinSeconds: 0,
@@ -35,6 +36,7 @@ var BOOLEAN_FIELDS = Object.freeze([
   "popoverMotion",
   "hudMotion",
   "sendMotion",
+  "hudWave",
   "completionNotify",
   "notifySound",
 ]);
