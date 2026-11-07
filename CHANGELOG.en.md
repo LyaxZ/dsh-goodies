@@ -2,6 +2,12 @@
 
 Notable changes to **dsh-goodies** land here. Each entry is compared against the previous release only; internal iteration stays out. The Chinese edition lives in [CHANGELOG.md](CHANGELOG.md).
 
+## [0.2.2] - 2026-11-07
+
+### Changed
+
+- **Send button feedback** has its own switch under Motion enhancements; turning it off removes the hover glow and the press response.
+
 ## [0.2.1] - 2026-11-06
 
 ### Changed

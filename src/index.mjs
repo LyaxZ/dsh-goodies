@@ -70,6 +70,10 @@ export const Config = volatileWhenSupported(
     .boolean()
     .default(true)
     .description("Animate the turn report in when a turn ends (ignores the system reduce-motion setting)"),
+  sendMotion: z
+    .boolean()
+    .default(true)
+    .description("Hover and press feedback for the composer's send button"),
   hudMotion: z
     .boolean()
     .default(true)

@@ -83,6 +83,8 @@ var zh = {
   "settings.motionDesc": "回合结束时让成绩单淡入并轻微上移。开启后始终生效，不受系统「减少动态效果」影响。",
   "settings.cardMotion": "卡片动效",
   "settings.hudMotion": "HUD 波形动效",
+  "settings.sendMotion": "发送按钮反馈",
+  "settings.sendMotionDesc": "悬停时出现柔和光晕，按下时轻微回弹。",
   "settings.hudMotionDesc": "实时速度波形在数据变化时平滑涨落，而不是瞬间跳变。",
   "settings.cardMotionDesc": "打开或关闭速度、时间卡片时淡入淡出。",
   "settings.reportDesc": "用量右边显示输入·输出·缓存，时间右边显示总用时和输出速度。",
@@ -165,6 +167,8 @@ var en = {
   "settings.motionDesc": "Fade the report in with a short rise when a turn ends. This always runs while enabled, regardless of the system reduce-motion setting.",
   "settings.cardMotion": "card motion",
   "settings.hudMotion": "HUD motion",
+  "settings.sendMotion": "send button feedback",
+  "settings.sendMotionDesc": "A soft glow on hover and a small press response.",
   "settings.hudMotionDesc": "The live speed bars rise and fall smoothly instead of jumping.",
   "settings.cardMotionDesc": "Fade the speed and time cards in and out.",
   "settings.reportDesc": "Shows input · output · cached next to usage, and total time plus output speed next to the answer's time.",
@@ -2720,6 +2724,9 @@ function TurnReportBody(props) {
     }
     return ref.current;
   };
+  if (typeof document !== "undefined") {
+    document.documentElement.setAttribute("data-dtk-send-motion", cfg.sendMotion === false ? "off" : "on");
+  }
   latestRowMotion = cfg.reportMotion !== false;
   installRowHoverMotion();
   var usageHost = hostFor("usage", usageHostRef);
@@ -4017,6 +4024,7 @@ function SettingsCard(props) {
         field(t("settings.motion"), t("settings.motionDesc"), seg("reportMotion")),
         field(t("settings.cardMotion"), t("settings.cardMotionDesc"), seg("popoverMotion")),
         field(t("settings.hudMotion"), t("settings.hudMotionDesc"), seg("hudMotion")),
+        field(t("settings.sendMotion"), t("settings.sendMotionDesc"), seg("sendMotion")),
       ],
     },
     {
