@@ -23,6 +23,7 @@ var DEFAULTS = Object.freeze({
   hudMotion: true,
   sendMotion: true,
   hudWave: true,
+  portableWindow: false,
   completionNotify: false,
   notifySound: false,
   notifyMinSeconds: 0,
@@ -37,6 +38,7 @@ var BOOLEAN_FIELDS = Object.freeze([
   "hudMotion",
   "sendMotion",
   "hudWave",
+  "portableWindow",
   "completionNotify",
   "notifySound",
 ]);
@@ -685,20 +687,35 @@ body[data-ds-dark-theme] .dtk-effort-panel .dtk-effort-spark{background:#dbeafe}
 @media (prefers-reduced-motion:reduce){.dtk-effort-panel,.dtk-effort-panel .dtk-effort-slider{animation:none}.dtk-effort-panel .dtk-effort-fill,.dtk-effort-panel .dtk-effort-thumb{transition:none}.dtk-effort-panel .dtk-effort-glow::after{animation:none;opacity:0}}
 /* The footer's flexible spacer is what opens a big blank in the row; with
    every child fixed, the figures stay compact and the clock follows them. */
-.dtk-live{display:inline-flex;align-items:center;gap:5px;margin-left:auto;flex:none;padding:0;border:0;background:none;min-width:0;color:#2563eb;font:inherit;font-variant-numeric:tabular-nums;white-space:nowrap;user-select:none}
+.dtk-live{display:inline-flex;align-items:center;gap:5px;width:18em;margin-left:auto;flex:none;padding:0;border:0;background:none;min-width:0;color:#2563eb;font:inherit;font-variant-numeric:tabular-nums;white-space:nowrap;user-select:none}
 .dtk-live-star{flex:none;width:13px;height:13px;background:#2563eb;clip-path:polygon(50% 0,64.5% 35.5%,100% 50%,64.5% 64.5%,50% 100%,35.5% 64.5%,0 50%,35.5% 35.5%)}
 .dtk-live-metric{display:inline-flex;align-items:center;gap:5px;min-width:0;line-height:inherit;flex:none}
 .dtk-live-metric.is-now .dtk-live-value{display:inline-flex;justify-content:flex-end;text-align:right;transition:width .16s ease-out}
 .dtk-live{position:relative}
 
 @keyframes dtk-demo-breathe{0%,100%{transform:scaleY(.35);opacity:.45}50%{transform:scaleY(1);opacity:1}}
-.dtk-live-value,.dtk-live-metric.is-total .dtk-live-value{display:inline-flex;justify-content:flex-end;text-align:right;transition:width .16s ease-out}
+.dtk-live-value{display:inline-block;flex:none;white-space:nowrap}
+@media (max-width:1200px){.dtk-live{width:16em}.dtk-live-wave{max-width:4.5em}}
+@media (max-width:960px){.dtk-live{width:14em}.dtk-live-wave{max-width:3em}}
+@media (max-width:760px){.dtk-live{width:11em}.dtk-live-wave{max-width:1.5em}}
 .dtk-live-unit{font-size:inherit;line-height:inherit;color:#2563eb;opacity:.75}
 .dtk-live-dot-sep{flex:none;font-size:inherit;line-height:inherit;color:#2563eb;opacity:.5}
 
 .dtk-slot{display:inline-flex;align-items:center;min-width:0;flex:0 1 auto;margin:-2px -2px;padding:2px 8px;border-radius:8px;overflow:hidden}
 .dtk-slot:not([data-dtk-open="1"]):hover{background:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-l2,#ececf0))}
 .dtk-slot[data-dtk-open="1"]{background:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-l2,#ececf0))}
+html.dtk-portable-open [data-dtk-portable-pane]{position:fixed;z-index:1300;right:24px;bottom:24px;width:min(460px,calc(100vw - 32px));height:min(620px,calc(100vh - 110px));display:flex;flex-direction:column;overflow:hidden;border-radius:14px;background:var(--dsw-alias-bg-base,#fff);box-shadow:0 18px 60px rgba(0,0,0,.28);border:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.08))}
+html.dtk-portable-open [data-dtk-portable-pane] [data-conversation-scroll]{max-height:none}
+.dtk-portable-scrim{position:fixed;z-index:1290;inset:0;background:rgba(20,24,32,.28);backdrop-filter:blur(1px)}
+@media (max-width:900px){html.dtk-portable-open [data-dtk-portable-pane]{right:8px;bottom:8px;width:calc(100vw - 16px);height:min(560px,calc(100vh - 90px))}}
+@media (max-width:560px){html.dtk-portable-open [data-dtk-portable-pane]{right:0;bottom:0;width:100vw;height:calc(100vh - 56px);border-radius:12px 12px 0 0}}
+.dtk-portable-btn{flex:none;height:24px;padding:0 8px;border:1px solid currentColor;border-radius:6px;background:none;color:inherit;font:inherit;font-size:11px;opacity:.7;cursor:pointer}
+.dtk-portable-btn:hover{opacity:1}
+.dtk-portable-bar{position:fixed;z-index:1200;top:56px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;max-width:calc(100vw - 24px);padding:6px 10px;border-radius:8px;background:var(--dsw-specific-menu,#f5f6f7);box-shadow:var(--dsw-elevation-prominent,0 4px 16px rgba(0,0,0,.12));font-size:12px;color:var(--dsw-alias-label-secondary,#555)}
+.dtk-portable-label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dtk-portable-bar button{flex:none;height:24px;padding:0 8px;border-radius:6px;border:1px solid var(--dsw-alias-border-l1,#ddd);background:none;color:inherit;font:inherit;font-size:12px;cursor:pointer}
+.dtk-portable-bar button:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(0,0,0,.05))}
+@media (max-width:640px){.dtk-portable-bar{top:auto;bottom:80px;font-size:11px}.dtk-portable-label{max-width:40vw}}
 .dtk-report{display:inline-flex;user-select:none;-webkit-user-select:none;align-items:center;gap:0;margin:0;padding:0;color:inherit;font:inherit;font-size:calc(var(--dsh-content-font-size-secondary,13px) - 1px);line-height:calc(24px + var(--dsh-content-font-delta,0px));font-variant-numeric:tabular-nums;opacity:1;white-space:nowrap;flex:0 1 auto;min-width:0;overflow:hidden}
 /* The report settles in when its turn finishes: a short rise with a fade, each
    figure a beat after the one before it. Only opacity and transform animate, so
@@ -779,7 +796,7 @@ html[data-dtk-send-motion="on"] button[aria-label*="发送"]:disabled:hover,butt
 html[data-dtk-send-motion="on"] button[aria-label*="发送"]:not(:disabled):hover:active,button[aria-label*="Send"]:not(:disabled):hover:active,button.uV2eYG_primary:not(:disabled):hover:active{transform:scale(.95) !important;filter:drop-shadow(0 0 4px rgba(29,78,216,.6)) !important;box-shadow:none !important}
 html[data-dtk-send-motion="on"] button[aria-label*="发送"]:disabled:hover:active,button[aria-label*="Send"]:disabled:hover:active,button.uV2eYG_primary:disabled:hover:active{transform:scale(.97) !important;filter:drop-shadow(0 0 4px rgba(96,165,250,.7)) !important;box-shadow:none !important}
 .dtk-live-wave2{min-width:44px;max-width:78px;box-sizing:border-box}
-.dtk-live-wave{display:inline-flex;align-items:flex-end;justify-content:flex-start;gap:2px;height:14px;margin-left:6px;margin-right:2px;overflow:hidden;font-weight:600;transition:width .16s ease-out}
+.dtk-live-wave{display:inline-flex;align-items:flex-end;justify-content:flex-start;gap:2px;height:14px;margin-left:6px;margin-right:2px;overflow:hidden;font-weight:600;min-width:0;flex:1 1 0px;max-width:6em}
 @keyframes dtk-bar-grow{from{transform:scaleY(.35);opacity:.5}to{transform:scaleY(1)}}
 .dtk-live-bar{flex:none;width:2px;min-height:2px;border-radius:1px;background:#1d4ed8;opacity:.9}
 .dtk-live-bar.is-empty{opacity:.2}

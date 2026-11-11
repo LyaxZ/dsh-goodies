@@ -70,6 +70,10 @@ export const Config = volatileWhenSupported(
     .boolean()
     .default(true)
     .description("Animate the turn report in when a turn ends (ignores the system reduce-motion setting)"),
+  portableWindow: z
+    .boolean()
+    .default(false)
+    .description("Experimental: show the portable conversation button"),
   hudWave: z
     .boolean()
     .default(true)

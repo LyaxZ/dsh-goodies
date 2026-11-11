@@ -2,6 +2,12 @@
 
 Notable changes to **dsh-goodies** land here. Each entry is compared against the previous release only; internal iteration stays out. The Chinese edition lives in [CHANGELOG.md](CHANGELOG.md).
 
+## [0.2.3] - 2026-11-11
+
+### Changed
+
+- **Live HUD**: the star and the waveform keep their place while the digits change, the reading sits against the bars, and the whole row scales with the window and the font.
+
 ## [0.2.2] - 2026-11-07
 
 ### Changed

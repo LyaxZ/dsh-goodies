@@ -244,6 +244,11 @@ var scopeListeners = [];
 var writeDepth = 0;
 var sessionsService = null;
 var workspaceService = null;
+var portableSessionId = null;
+var portablePreviousId = null;
+var portableReturn = null;
+var portablePending = false;
+
 var remoteSession = null;
 var activeSessionId = null;
 var liveTurnSpeeds = new Map();
@@ -307,6 +312,121 @@ function installRowHoverMotion() {
     true
   );
 }
+/** Open a scratch session in the current workspace and remember where to return. */
+function openPortableSession() {
+  try {
+    if (portableSessionId !== null) return;
+    if (!workspaceService || typeof workspaceService.startSession !== "function") {
+      console.warn("[dsh-goodies] portable: no workspace service");
+      return;
+    }
+    portablePreviousId = activeSessionId;
+    portablePending = true;
+    workspaceService.startSession();
+    // The pane may not exist until the session view mounts; retry a few times.
+    [0, 150, 400, 900].forEach(function (delay) {
+      setTimeout(enterPortableMode, delay);
+    });
+    setTimeout(showPortableBar, 200);
+  } catch (error) {
+    console.warn("[dsh-goodies] portable session failed:", error);
+  }
+}
+
+/** Close the scratch session: archive it, then return to where the user was. */
+function closePortableSession() {
+  exitPortableMode();
+  var id = portableSessionId;
+  var back = portablePreviousId;
+  portableSessionId = null;
+  portablePreviousId = null;
+  removePortableBar();
+  try {
+    if (id !== null && workspaceService && typeof workspaceService.archiveSession === "function") {
+      workspaceService.archiveSession(id).catch(function (error) {
+        console.warn("[dsh-goodies] portable archive failed:", error);
+      });
+    }
+    if (back !== null && workspaceService && typeof workspaceService.openSession === "function") {
+      setTimeout(function () {
+        workspaceService.openSession(back);
+      }, 60);
+    }
+  } catch (error) {
+    console.warn("[dsh-goodies] portable close failed:", error);
+  }
+}
+
+/** Keep the session but stop treating it as scratch. */
+function keepPortableSession() {
+  exitPortableMode();
+  portableSessionId = null;
+  portablePreviousId = null;
+  removePortableBar();
+}
+
+function findConversationPane() {
+  var scroll = document.querySelector("[data-conversation-scroll]");
+  if (scroll === null) return null;
+  var node = scroll;
+  for (var depth = 0; depth < 8 && node !== null && node !== document.body; depth += 1) {
+    var rect = node.getBoundingClientRect();
+    if (rect.width > 520 && rect.height > 320) return node;
+    node = node.parentElement;
+  }
+  return scroll.parentElement;
+}
+
+function enterPortableMode() {
+  var pane = findConversationPane();
+  console.info("[dsh-goodies] portable pane:", pane === null ? "not found" : pane.tagName + "." + String(pane.className).slice(0, 60));
+  if (pane === null) return;
+  pane.setAttribute("data-dtk-portable-pane", "1");
+  document.documentElement.classList.add("dtk-portable-open");
+  if (document.querySelector(".dtk-portable-scrim") === null) {
+    var scrim = document.createElement("div");
+    scrim.className = "dtk-portable-scrim";
+    scrim.addEventListener("click", closePortableSession);
+    document.body.appendChild(scrim);
+  }
+}
+
+function exitPortableMode() {
+  var pane = document.querySelector("[data-dtk-portable-pane]");
+  if (pane !== null) pane.removeAttribute("data-dtk-portable-pane");
+  document.documentElement.classList.remove("dtk-portable-open");
+  var scrim = document.querySelector(".dtk-portable-scrim");
+  if (scrim !== null) scrim.remove();
+}
+
+function removePortableBar() {
+  var bar = document.querySelector(".dtk-portable-bar");
+  if (bar !== null) bar.remove();
+}
+
+function showPortableBar() {
+  removePortableBar();
+  var bar = document.createElement("div");
+  bar.className = "dtk-portable-bar";
+  var label = document.createElement("span");
+  label.className = "dtk-portable-label";
+  label.textContent = "便携会话 · 不进工作区";
+  var keep = document.createElement("button");
+  keep.type = "button";
+  keep.className = "dtk-portable-keep";
+  keep.textContent = "转为正式会话";
+  keep.addEventListener("click", keepPortableSession);
+  var close = document.createElement("button");
+  close.type = "button";
+  close.className = "dtk-portable-close";
+  close.textContent = "关闭并归档";
+  close.addEventListener("click", closePortableSession);
+  bar.appendChild(label);
+  bar.appendChild(keep);
+  bar.appendChild(close);
+  document.body.appendChild(bar);
+}
+
 var liveTurnSeries = new Map();
 /** Per turn: what the host measured, which survives a throttled page. */
 var liveTurnStats = new Map();
@@ -2108,6 +2228,19 @@ function liveUsageTotal(snapshot) {
   return 0;
 }
 
+function PortableButton() {
+  return h(
+    "button",
+    {
+      type: "button",
+      className: "dtk-portable-btn",
+      title: "打开便携会话",
+      onClick: openPortableSession,
+    },
+    "便携"
+  );
+}
+
 function LiveSpeed(props) {
   if (typeof props.useChat !== "function") return null;
   // The composer slot stays mounted while a session is open, so the completion
@@ -2151,7 +2284,17 @@ function LiveSpeedBody(props) {
   var seenTurn = useRef(false);
   useEffect(
     function () {
-      if (props.sessionId !== undefined) activeSessionId = String(props.sessionId);
+      if (props.sessionId !== undefined) {
+    var nextSessionId = String(props.sessionId);
+    if (portablePending && nextSessionId !== portablePreviousId) {
+      portablePending = false;
+      portableSessionId = nextSessionId;
+      console.info("[dsh-goodies] portable session:", nextSessionId);
+      enterPortableMode();
+      showPortableBar();
+    }
+    activeSessionId = nextSessionId;
+  }
     },
     [props.sessionId]
   );
@@ -2426,7 +2569,7 @@ function LiveSpeedBody(props) {
   // Both readings grow leftwards into the wave: every character they gain is one
   // cell the wave gives up, so the row keeps its width and the star never moves.
   var slots = 20;
-  var extra = Math.min(10, Math.max(0, speedText.length - 1) + Math.max(0, totalText.length - 1));
+  var extra = Math.max(0, speedText.length - 1) + Math.max(0, totalText.length - 1);
   var newestFirst = series.slice().reverse().slice(0, 20);
   var visible = newestFirst.slice();
   while (visible.length < slots) visible.push(0);
@@ -2435,7 +2578,7 @@ function LiveSpeedBody(props) {
     {
       className: "dtk-live-wave dtk-live-wave2",
       "aria-hidden": "true",
-      style: { width: "calc(78px - " + Math.min(6, extra) + "ch)", minWidth: "44px" },
+      style: { flex: "1 1 0px", minWidth: "0px", maxWidth: "78px" },
     },
     visible.map(function (value, index) {
       var height = value > 0 ? Math.max(2, Math.round((value / seriesMax) * 14)) : 2;
@@ -2474,14 +2617,14 @@ function LiveSpeedBody(props) {
     h(
       "span",
       { className: "dtk-live-metric is-now" },
-      h("span", { className: "dtk-live-value", style: { width: speedText.length + "ch" } }, speedText),
+      h("span", { className: "dtk-live-value" }, speedText),
       h("span", { className: "dtk-live-unit" }, "tok/s")
     ),
     h("span", { className: "dtk-live-dot-sep", "aria-hidden": "true" }, "·"),
     h(
       "span",
       { className: "dtk-live-metric is-total" },
-      h("span", { className: "dtk-live-value", style: { width: totalText.length + "ch" } }, totalText),
+      h("span", { className: "dtk-live-value" }, totalText),
       h("span", { className: "dtk-live-unit" }, "tokens")
     )
   );
@@ -4161,7 +4304,7 @@ function SettingsCard(props) {
  */
 export function apply(ctx) {
   try {
-    window.__DSH_GOODIES_BUILD__ = "2026-11-07T23:50";
+    window.__DSH_GOODIES_BUILD__ = "2026-11-11T20:05";
     console.info("[dsh-goodies] build", window.__DSH_GOODIES_BUILD__);
   } catch (error) {
     // A read-only window is fine.
@@ -4233,6 +4376,19 @@ export function apply(ctx) {
     );
   });
 
+  if (config.portableWindow === true) {
+  ctx.slots.inject("conversation.input.left", function () {
+    return ctx.slots.register(
+      {
+        name: "conversation.input.left",
+        id: "dsh-goodies-portable",
+        order: 10,
+        locale: NAMESPACE,
+      },
+      PortableButton
+    );
+  });
+  }
   ctx.slots.inject("conversation.chat.turnTail", function () {
     return ctx.slots.register(
       {
