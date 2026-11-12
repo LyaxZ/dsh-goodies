@@ -2,6 +2,19 @@
 
 Notable changes to **dsh-goodies** land here. Each entry is compared against the previous release only; internal iteration stays out. The Chinese edition lives in [CHANGELOG.md](CHANGELOG.md).
 
+## [0.2.4] - 2026-11-12
+
+### Changed
+
+- **Live HUD** scales with the font and the window; on narrow windows it steps down while the star and the waveform keep their place.
+- **Effort card** lines up with the native menu again on DSH 0.2.2-rc.2, with the level name at the top, the model name below it and the track at the bottom.
+- **Report footer**: the hover background matches the native button box and no longer overlaps its neighbours.
+- **Detail cards** always close on scroll, click or reopen instead of occasionally staying behind.
+
+### Compatibility
+
+- Supports DSH 0.2.2-rc.2.
+
 ## [0.2.3] - 2026-11-11
 
 ### Changed
