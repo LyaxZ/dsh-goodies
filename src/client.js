@@ -248,6 +248,7 @@ var portableSessionId = null;
 var portablePreviousId = null;
 var portableReturn = null;
 var portablePending = false;
+var popoverCloseTimer = null;
 
 var remoteSession = null;
 var activeSessionId = null;
@@ -1485,14 +1486,13 @@ function decorateEffortMenu(menu) {
     // Remember the root menu (model + effort rows) before it drills into the
     // effort pane; that is the box the slider should visually replace.
     if (menu.querySelector('[role="menuitem"]') !== null) {
-      var rootLeft = parseFloat(menu.style.left);
-      var rootTop = parseFloat(menu.style.top);
-      if (Number.isFinite(rootLeft) && Number.isFinite(rootTop) && menu.offsetWidth > 2) {
+      var rootRect = menu.getBoundingClientRect();
+      if (rootRect.width > 2 && rootRect.height > 2) {
         menu.__dtkRootAnchor = {
-          left: rootLeft,
-          top: rootTop,
-          width: menu.offsetWidth,
-          height: menu.offsetHeight,
+          left: rootRect.left,
+          top: rootRect.top,
+          width: rootRect.width,
+          height: rootRect.height,
         };
       }
     }
@@ -1518,12 +1518,14 @@ function decorateEffortMenu(menu) {
   }
 
   var measured = menu.getBoundingClientRect();
-  var styledLeft = parseFloat(menu.style.left);
-  var styledTop = parseFloat(menu.style.top);
-  if (Number.isFinite(styledLeft) && Number.isFinite(styledTop) && menu.offsetHeight > 2) {
-    menu.__dtkAnchor = { left: styledLeft, top: styledTop, bottom: styledTop + menu.offsetHeight };
-  } else if (measured.width > 2 && measured.height > 2) {
-    menu.__dtkAnchor = { left: measured.left, top: measured.top, bottom: measured.bottom };
+  if (measured.width > 2 && measured.height > 2) {
+    menu.__dtkAnchor = {
+      left: measured.left,
+      top: measured.top,
+      bottom: measured.bottom,
+      width: measured.width,
+      height: measured.height,
+    };
   }
   var anchor =
     menu.__dtkRootAnchor ||
@@ -1602,6 +1604,21 @@ function decorateEffortMenu(menu) {
     content.appendChild(labelNode);
   }
   setEffortLabel(labelNode, text);
+
+  // Between the level name and the track: the model this level belongs to.
+  var modelNode = content.querySelector(".dtk-effort-model");
+  if (modelNode === null) {
+    modelNode = document.createElement("div");
+    modelNode.className = "dtk-effort-model";
+    modelNode.setAttribute("aria-hidden", "true");
+    content.appendChild(modelNode);
+  }
+  var source = document.querySelector("[data-composer-card] [data-model-id]");
+  var modelName = source === null ? "" : (source.textContent || "").trim();
+  if (modelName !== "" && text !== "" && modelName.endsWith(text)) {
+    modelName = modelName.slice(0, -text.length).trim();
+  }
+  if (modelName !== "" && modelName !== modelNode.textContent) modelNode.textContent = modelName;
 
   // Build (or reuse) the slider below the label.
   var sliderBox = content.querySelector(".dtk-effort-slider");
@@ -3442,6 +3459,10 @@ function TurnReportBody(props) {
       .catch(function () {});
   };
   var openPopover = function (kind, node) {
+    if (popoverCloseTimer !== null) {
+      clearTimeout(popoverCloseTimer);
+      popoverCloseTimer = null;
+    }
     var staleCard = document.querySelector(".dtk-pop");
     if (staleCard !== null) {
       if (typeof staleCard.getAnimations === "function") {
@@ -3495,6 +3516,10 @@ function TurnReportBody(props) {
   };
   var closeSeq = useRef(0);
   var closePopover = function () {
+    if (popoverCloseTimer !== null) {
+      clearTimeout(popoverCloseTimer);
+      popoverCloseTimer = null;
+    }
     popoverRef.current = null;
     if (usageHostRef.current) usageHostRef.current.removeAttribute("data-dtk-open");
     if (timeHostRef.current) timeHostRef.current.removeAttribute("data-dtk-open");
@@ -3505,6 +3530,12 @@ function TurnReportBody(props) {
       setPopover(null);
       return;
     }
+    var finish = function () {
+      if (closeSeq.current !== seq) return;
+      if (card.isConnected) card.remove();
+      setPopover(null);
+    };
+    popoverCloseTimer = setTimeout(finish, 220);
     if (card.getAttribute("data-dtk-closing") === "1") return;
     card.setAttribute("data-dtk-closing", "1");
     var closing = card.animate(
@@ -4304,7 +4335,7 @@ function SettingsCard(props) {
  */
 export function apply(ctx) {
   try {
-    window.__DSH_GOODIES_BUILD__ = "2026-11-11T20:05";
+    window.__DSH_GOODIES_BUILD__ = "2026-11-12T16:45";
     console.info("[dsh-goodies] build", window.__DSH_GOODIES_BUILD__);
   } catch (error) {
     // A read-only window is fine.
