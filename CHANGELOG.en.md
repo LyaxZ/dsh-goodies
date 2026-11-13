@@ -10,7 +10,7 @@ Notable changes to **dsh-goodies** land here. Each entry is compared against the
 
 ### Compatibility
 
-- Supports DSH 0.2.2-rc.3.
+- Supports DSH 0.2.2-rc.3; the supported range now starts at 0.2.1-rc.2.
 
 ## [0.2.4] - 2026-11-12
 
