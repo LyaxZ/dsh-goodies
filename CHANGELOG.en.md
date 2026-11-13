@@ -2,6 +2,16 @@
 
 Notable changes to **dsh-goodies** land here. Each entry is compared against the previous release only; internal iteration stays out. The Chinese edition lives in [CHANGELOG.md](CHANGELOG.md).
 
+## [0.2.5] - 2026-11-13
+
+### Fixed
+
+- **Effort card**: the model name follows the primary text colour in the dark theme instead of staying dark.
+
+### Compatibility
+
+- Supports DSH 0.2.2-rc.3.
+
 ## [0.2.4] - 2026-11-12
 
 ### Changed
