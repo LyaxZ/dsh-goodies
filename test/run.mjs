@@ -409,6 +409,9 @@ check("particles cover the rail height", clientSource.includes("--y") && /\(8 \+
 check("hud total uses compact units", clientSource.includes("shared.formatTokens(shownTotal)"));
 check("hud speed survives a lagging usage sample", clientSource.includes("remote.ok === false ? estimate : remote.tokens"));
 check("css fades the panel out", shared.CSS.includes(".dtk-effort-panel--closing"));
+check("old hosts keep the compact effort panel", clientSource.includes("window.__DSH_BOOT__") && clientSource.includes("dtk-effort-panel--compact") && !shared.CSS.includes(".dtk-effort-panel--compact .dtk-effort-model"));
+check("only new hosts get the model row", clientSource.includes("if (!effortLargeLayout()) {") && clientSource.includes("staleModel.remove()"));
+check("level names keep room for descenders", /\.dtk-effort-panel \.dtk-effort-menu-label\{[^}]*flex:0 0 auto[^}]*line-height:20px/.test(shared.CSS));
 check("the hud draws a speed waveform", shared.CSS.includes(".dtk-live-wave") && shared.CSS.includes(".dtk-live-bar") && shared.CSS.includes(".dtk-live-bar.is-empty") && shared.CSS.includes(".dtk-live-metric.is-now .dtk-live-value"));
 check("the waveform keeps one reading per second", clientSource.includes("liveTurnSeries") && clientSource.includes("seriesBucket"));
 check("panel fade is not instant", /\.dtk-effort-content\{[^}]*transition:opacity \.3[0-9]?s/.test(shared.CSS));

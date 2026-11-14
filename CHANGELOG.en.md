@@ -2,6 +2,13 @@
 
 Notable changes to **dsh-goodies** land here. Each entry is compared against the previous release only; internal iteration stays out. The Chinese edition lives in [CHANGELOG.md](CHANGELOG.md).
 
+## [0.2.6] - 2026-11-14
+
+### Fixed
+
+- **Effort card**: DSH 0.2.2-rc.1 and older get the small panel without a model line again, sized like the native menu, and level names keep their descenders.
+- **Effort card**: DSH 0.2.2-rc.2 and newer keep the large panel, with the level name set apart from the track.
+
 ## [0.2.5] - 2026-11-13
 
 ### Fixed

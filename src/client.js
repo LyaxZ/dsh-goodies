@@ -1263,6 +1263,50 @@ function stopEffortSlider(menu) {
   }
 }
 
+/** Host releases from 0.2.2-rc.2 on draw the effort menu tall enough to name the model in it. */
+function parseDshRelease(value) {
+  if (typeof value !== "string") return null;
+  var matched = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?/.exec(value.trim());
+  if (matched === null) return null;
+  var core = [Number(matched[1]), Number(matched[2]), Number(matched[3])];
+  var pre = matched[4] === undefined ? [] : matched[4].split(".");
+  return { core: core, pre: pre };
+}
+
+function compareDshRelease(left, right) {
+  for (var index = 0; index < 3; index += 1) {
+    if (left.core[index] !== right.core[index]) return left.core[index] < right.core[index] ? -1 : 1;
+  }
+  // A release without a prerelease tag is newer than every prerelease of it.
+  if (left.pre.length === 0 && right.pre.length === 0) return 0;
+  if (left.pre.length === 0) return 1;
+  if (right.pre.length === 0) return -1;
+  var count = Math.max(left.pre.length, right.pre.length);
+  for (var preIndex = 0; preIndex < count; preIndex += 1) {
+    if (left.pre[preIndex] === undefined) return -1;
+    if (right.pre[preIndex] === undefined) return 1;
+    var leftNumber = /^\d+$/.test(left.pre[preIndex]);
+    var rightNumber = /^\d+$/.test(right.pre[preIndex]);
+    if (leftNumber && rightNumber) {
+      var leftValue = Number(left.pre[preIndex]);
+      var rightValue = Number(right.pre[preIndex]);
+      if (leftValue !== rightValue) return leftValue < rightValue ? -1 : 1;
+      continue;
+    }
+    if (leftNumber !== rightNumber) return leftNumber ? -1 : 1;
+    if (left.pre[preIndex] !== right.pre[preIndex]) return left.pre[preIndex] < right.pre[preIndex] ? -1 : 1;
+  }
+  return 0;
+}
+
+function effortLargeLayout() {
+  var boot = typeof window !== "undefined" ? window.__DSH_BOOT__ : undefined;
+  var version = boot && boot.release ? boot.release.version : undefined;
+  var parsed = parseDshRelease(version);
+  if (parsed === null) return false;
+  return compareDshRelease(parsed, { core: [0, 2, 2], pre: ["rc", "2"] }) >= 0;
+}
+
 /**
  * The slider is an overlay, not a child of the React-owned menu: inserting
  * nodes into that menu makes React reconciliation drop the whole pane.
@@ -1277,7 +1321,7 @@ function ensureEffortPanel(menu) {
     closing[closingIndex].remove();
   }
   panel = document.createElement("div");
-  panel.className = "dtk-effort-panel";
+  panel.className = "dtk-effort-panel" + (effortLargeLayout() ? "" : " dtk-effort-panel--compact");
   panel.setAttribute("data-tone", menu.getAttribute("data-tone") || "0");
   panel.style.visibility = "hidden";
   panel.style.left = "-9999px";
@@ -1606,19 +1650,26 @@ function decorateEffortMenu(menu) {
   setEffortLabel(labelNode, text);
 
   // Between the level name and the track: the model this level belongs to.
-  var modelNode = content.querySelector(".dtk-effort-model");
-  if (modelNode === null) {
-    modelNode = document.createElement("div");
-    modelNode.className = "dtk-effort-model";
-    modelNode.setAttribute("aria-hidden", "true");
-    content.appendChild(modelNode);
+  // Older hosts draw a short menu with no room for it, so the compact layout
+  // keeps the label and the track only.
+  if (!effortLargeLayout()) {
+    var staleModel = content.querySelector(".dtk-effort-model");
+    if (staleModel !== null) staleModel.remove();
+  } else {
+    var modelNode = content.querySelector(".dtk-effort-model");
+    if (modelNode === null) {
+      modelNode = document.createElement("div");
+      modelNode.className = "dtk-effort-model";
+      modelNode.setAttribute("aria-hidden", "true");
+      content.appendChild(modelNode);
+    }
+    var source = document.querySelector("[data-composer-card] [data-model-id]");
+    var modelName = source === null ? "" : (source.textContent || "").trim();
+    if (modelName !== "" && text !== "" && modelName.endsWith(text)) {
+      modelName = modelName.slice(0, -text.length).trim();
+    }
+    if (modelName !== "" && modelName !== modelNode.textContent) modelNode.textContent = modelName;
   }
-  var source = document.querySelector("[data-composer-card] [data-model-id]");
-  var modelName = source === null ? "" : (source.textContent || "").trim();
-  if (modelName !== "" && text !== "" && modelName.endsWith(text)) {
-    modelName = modelName.slice(0, -text.length).trim();
-  }
-  if (modelName !== "" && modelName !== modelNode.textContent) modelNode.textContent = modelName;
 
   // Build (or reuse) the slider below the label.
   var sliderBox = content.querySelector(".dtk-effort-slider");
