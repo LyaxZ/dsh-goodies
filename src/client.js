@@ -248,7 +248,6 @@ var portableSessionId = null;
 var portablePreviousId = null;
 var portableReturn = null;
 var portablePending = false;
-var popoverCloseTimer = null;
 
 var remoteSession = null;
 var activeSessionId = null;
@@ -2949,6 +2948,44 @@ function TurnReportBody(props) {
   installRowHoverMotion();
   var usageHost = hostFor("usage", usageHostRef);
   var timeHost = hostFor("time", timeHostRef);
+  // A crash or a remount must not leave the two empty seats behind: they are
+  // our nodes, not the host's, so only this cleanup can take them away.
+  useEffect(
+    function () {
+      return function () {
+        if (usageHost.parentNode !== null) usageHost.remove();
+        if (timeHost.parentNode !== null) timeHost.remove();
+      };
+    },
+    []
+  );
+  // The footer is React-owned: a native re-render can drop the two hosts we
+  // moved into it. Putting them back synchronously (instead of waiting for the
+  // next tick) keeps the report and its open card from blinking out.
+  var reattachHosts = function () {
+    if (typeof document === "undefined") return;
+    var liveRoot = document.querySelector('[data-turn-tail="' + turnNumber + '"] [data-clock="end"]');
+    if (liveRoot === null) return;
+    var liveInfo = liveRoot.querySelector('[class*="_endInfo"]') || liveRoot;
+    var liveTime = liveInfo.querySelector('[class*="_timeEnd"]');
+    var liveUsage = liveInfo.querySelector('[class*="_trigger"]') || liveInfo.querySelector('[class*="_root"]');
+    try {
+      if (liveUsage !== null) {
+        if (usageHost.previousSibling !== liveUsage) liveUsage.after(usageHost);
+      } else if (!usageHost.isConnected) {
+        liveInfo.insertBefore(usageHost, liveInfo.firstChild);
+      }
+      if (usageHost.parentElement !== null) {
+        if (usageHost.nextSibling !== timeHost) usageHost.after(timeHost);
+      } else if (liveTime !== null) {
+        liveInfo.insertBefore(timeHost, liveTime);
+      } else {
+        liveInfo.appendChild(timeHost);
+      }
+    } catch (orderError) {
+      // A moving tail is fine; the observer tries again.
+    }
+  };
   // Clicks on the padded edge of the pill used to land on the slot itself,
   // where no figure handler existed: the card closed and nothing reopened.
   // A report figure opens a small card: the speed curve, or the time split.
@@ -2956,6 +2993,11 @@ function TurnReportBody(props) {
   // Mirrors the state for click bursts: two clicks can arrive before React
   // re-renders, and both would otherwise think the card is still closed.
   var popoverRef = useRef(null);
+  // Every turn renders its own report, so the close timer and the card node
+  // must belong to this instance. A shared timer let one turn's close cancel
+  // another turn's card, which looked like flicker.
+  var popoverTimerRef = useRef(null);
+  var cardRef = useRef(null);
   var popover = popoverState[0];
   var setPopover = popoverState[1];
   // The hover pill is painted in a fixed layer: the figure box clips its own
@@ -3000,6 +3042,14 @@ function TurnReportBody(props) {
       var info = root.querySelector('[class*="_endInfo"]') || root;
       var timeEl = info.querySelector('[class*="_timeEnd"]');
       var usageButton = info.querySelector('[class*="_trigger"]') || info.querySelector('[class*="_root"]');
+      // A previous instance that crashed before its cleanup could leave empty
+      // seats in this row; they cost the row's gap and look like a lost report.
+      var staleSeats = info.querySelectorAll('[data-dtk-slot]');
+      for (var seatIndex = 0; seatIndex < staleSeats.length; seatIndex += 1) {
+        var seat = staleSeats[seatIndex];
+        if (seat === usageHost || seat === timeHost) continue;
+        if (seat.querySelector("[data-goodies-turn-report]") === null) seat.remove();
+      }
       try {
         // Sit right after the native usage pill: anywhere later leaves a flex
         // spacer between the pill and our figures, and that gap grows. The
@@ -3114,21 +3164,34 @@ function TurnReportBody(props) {
   );
 
   // Footers come and go with scrolling and re-renders; move the hosts back
-  // whenever they are out of the document.
+  // whenever they are out of the document. The observer catches a rebuild in
+  // the same frame; the slow timer is only a fallback for a rebuilt tail.
   useEffect(
     function () {
+      var frame = 0;
+      var schedule = function () {
+        if (frame !== 0) return;
+        frame = requestAnimationFrame(function () {
+          frame = 0;
+          if (!usageHost.isConnected || !timeHost.isConnected) reattachHosts();
+        });
+      };
+      var observer = null;
+      if (typeof MutationObserver === "function") {
+        observer = new MutationObserver(schedule);
+        var tail = document.querySelector('[data-turn-tail="' + turnNumber + '"]');
+        observer.observe(tail !== null ? tail : document.body, { childList: true, subtree: true });
+      }
       var timer = setInterval(function () {
-        if (!usageHost.isConnected || !timeHost.isConnected) {
-          bumpSlotEpoch(function (value) {
-            return value + 1;
-          });
-        }
-      }, 600);
+        if (!usageHost.isConnected || !timeHost.isConnected) reattachHosts();
+      }, 700);
       return function () {
         clearInterval(timer);
+        if (observer !== null) observer.disconnect();
+        if (frame !== 0) cancelAnimationFrame(frame);
       };
     },
-    []
+    [turnNumber]
   );
 
   useEffect(
@@ -3159,7 +3222,7 @@ function TurnReportBody(props) {
       if (popover === null) return undefined;
       var onPointerDown = function (event) {
     if (event.target && event.target.closest && event.target.closest("[data-dtk-slot]")) return;
-        var card = document.querySelector("[data-goodies-report-pop]");
+        var card = cardRef.current;
         if (card !== null && card.contains(event.target)) return;
         var anchor = event.target && event.target.closest ? event.target.closest("[data-dtk-part]") : null;
         if (anchor !== null) return;
@@ -3510,11 +3573,11 @@ function TurnReportBody(props) {
       .catch(function () {});
   };
   var openPopover = function (kind, node) {
-    if (popoverCloseTimer !== null) {
-      clearTimeout(popoverCloseTimer);
-      popoverCloseTimer = null;
+    if (popoverTimerRef.current !== null) {
+      clearTimeout(popoverTimerRef.current);
+      popoverTimerRef.current = null;
     }
-    var staleCard = document.querySelector(".dtk-pop");
+    var staleCard = cardRef.current;
     if (staleCard !== null) {
       if (typeof staleCard.getAnimations === "function") {
         staleCard.getAnimations().forEach(function (animation) {
@@ -3567,26 +3630,27 @@ function TurnReportBody(props) {
   };
   var closeSeq = useRef(0);
   var closePopover = function () {
-    if (popoverCloseTimer !== null) {
-      clearTimeout(popoverCloseTimer);
-      popoverCloseTimer = null;
+    if (popoverTimerRef.current !== null) {
+      clearTimeout(popoverTimerRef.current);
+      popoverTimerRef.current = null;
     }
     popoverRef.current = null;
     if (usageHostRef.current) usageHostRef.current.removeAttribute("data-dtk-open");
     if (timeHostRef.current) timeHostRef.current.removeAttribute("data-dtk-open");
     var seq = closeSeq.current + 1;
     closeSeq.current = seq;
-    var card = document.querySelector(".dtk-pop");
+    var card = cardRef.current;
     if (card === null || cfg.popoverMotion === false || typeof card.animate !== "function") {
       setPopover(null);
       return;
     }
     var finish = function () {
       if (closeSeq.current !== seq) return;
-      if (card.isConnected) card.remove();
+      // The card is React-owned: only the state may unmount it. Removing the
+      // node here used to race the next render and blank the whole report.
       setPopover(null);
     };
-    popoverCloseTimer = setTimeout(finish, 220);
+    popoverTimerRef.current = setTimeout(finish, 220);
     if (card.getAttribute("data-dtk-closing") === "1") return;
     card.setAttribute("data-dtk-closing", "1");
     var closing = card.animate(
@@ -3911,6 +3975,7 @@ function TurnReportBody(props) {
           className: "dtk-pop",
           "data-goodies-report-pop": "",
         ref: function (node) {
+          cardRef.current = node;
           if (node === null || cfg.popoverMotion === false || node.getAttribute("data-dtk-animated") === "1") return;
           node.setAttribute("data-dtk-animated", "1");
           if (typeof node.animate === "function") {

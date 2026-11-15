@@ -403,6 +403,10 @@ check("the live hook resolves a missing session id", clientSource.includes("sess
 check("the time split has several kinds", clientSource.includes('t("report.reasoning")') && clientSource.includes('t("report.toolArgs")') && clientSource.includes('t("report.reply")'));
 check("the report paints its hover pill outside the clip", clientSource.includes("data-goodies-halo") && clientSource.includes("showHalo"));
 check("report figures are clickable", clientSource.includes("data-goodies-report-pop") && clientSource.includes("report.openHint"));
+check("a rebuilt footer gets the report seats back at once", clientSource.includes("reattachHosts") && clientSource.includes("new MutationObserver(schedule)"));
+check("an unmounted report leaves no empty seats", clientSource.includes("usageHost.remove()") && clientSource.includes("timeHost.remove()"));
+check("the card belongs to one report instance", clientSource.includes("popoverTimerRef") && clientSource.includes("cardRef.current") && !clientSource.includes("popoverCloseTimer"));
+check("the card is unmounted by React only", !clientSource.includes("card.remove()") && !clientSource.includes("staleCard.remove()"));
 // Behaviour contracts for the slider rail and the HUD readout.
 check("passed level dots are hidden", clientSource.includes('tick <= safe ? "none"'));
 check("particles cover the rail height", clientSource.includes("--y") && /\(8 \+ Math\.random\(\) \* 84\)/.test(clientSource));

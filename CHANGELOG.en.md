@@ -2,6 +2,13 @@
 
 Notable changes to **dsh-goodies** land here. Each entry is compared against the previous release only; internal iteration stays out. The Chinese edition lives in [CHANGELOG.md](CHANGELOG.md).
 
+## [0.2.7] - 2026-11-15
+
+### Fixed
+
+- **Report detail cards**: with several turns on screen, opening or closing one card no longer disturbs another turn's card, so the constant flicker and misplaced card are gone.
+- **Report readouts**: they return as soon as the footer re-renders, and an unmounted or failed report no longer leaves empty seats behind or loses the whole block.
+
 ## [0.2.6] - 2026-11-14
 
 ### Fixed
