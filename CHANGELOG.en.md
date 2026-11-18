@@ -2,6 +2,12 @@
 
 Notable changes to **dsh-goodies** land here. Each entry is compared against the previous release only; internal iteration stays out. The Chinese edition lives in [CHANGELOG.md](CHANGELOG.md).
 
+## [0.2.9] - 2026-11-18
+
+### Compatibility
+
+- Supports DSH 0.2.2-rc.5.
+
 ## [0.2.8] - 2026-11-18
 
 ### Compatibility
