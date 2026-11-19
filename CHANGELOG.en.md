@@ -2,6 +2,12 @@
 
 Notable changes to **dsh-goodies** land here. Each entry is compared against the previous release only; internal iteration stays out. The Chinese edition lives in [CHANGELOG.md](CHANGELOG.md).
 
+## [0.2.10] - 2026-11-19
+
+### Fixed
+
+- **Stutter on the first click**: with the chime off (the default) the audio device is never opened; with it on, preparation now waits for idle time, so clicks and panel openings are no longer blocked.
+
 ## [0.2.9] - 2026-11-18
 
 ### Compatibility

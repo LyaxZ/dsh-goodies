@@ -833,9 +833,14 @@ function flashTitle(text) {
 }
 
 var audioContext = null;
+var audioUnlockScheduled = false;
 
 function unlockAudio() {
   if (typeof window === "undefined") return;
+  // The chime is off by default; opening the context costs a long task on a
+  // cold audio device, so it must never ride on someone else's first click.
+  var current = getConfig();
+  if (!current || current.notifySound !== true) return;
   var Ctor = window.AudioContext || window.webkitAudioContext;
   if (!Ctor) return;
   if (audioContext === null) {
@@ -854,11 +859,35 @@ function unlockAudio() {
   }
 }
 
+/** Opening the device is deferred to idle so a click paints before audio starts. */
+function scheduleAudioUnlock() {
+  if (typeof window === "undefined") return;
+  var current = getConfig();
+  if (!current || current.notifySound !== true) return;
+  if (audioContext !== null) {
+    unlockAudio();
+    return;
+  }
+  if (audioUnlockScheduled) return;
+  audioUnlockScheduled = true;
+  var run = function () {
+    audioUnlockScheduled = false;
+    unlockAudio();
+  };
+  if (typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(run, { timeout: 1200 });
+  } else {
+    setTimeout(run, 400);
+  }
+}
+
 function playChime() {
-  // Try to open the output here as well: a user who only ever presses Enter has
-  // never triggered the pointer listener, and the first chime used to be lost.
-  if (audioContext === null) unlockAudio();
-  if (audioContext === null) return;
+  // The first click already asked for the device while idle. If it is still not
+  // ready, skip this chime instead of paying the startup cost mid-render.
+  if (audioContext === null) {
+    scheduleAudioUnlock();
+    return;
+  }
   var start = audioContext.currentTime;
   var tones = [880, 1320];
   for (var index = 0; index < tones.length; index += 1) {
@@ -4496,9 +4525,9 @@ export function apply(ctx) {
   ctx.effect(
     function () {
       if (typeof document === "undefined") return undefined;
-      document.addEventListener("pointerdown", unlockAudio, { capture: true });
+      document.addEventListener("pointerdown", scheduleAudioUnlock, { capture: true });
       return function () {
-        document.removeEventListener("pointerdown", unlockAudio, { capture: true });
+        document.removeEventListener("pointerdown", scheduleAudioUnlock, { capture: true });
       };
     },
     "dsh-goodies: audio unlock"

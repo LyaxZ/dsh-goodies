@@ -430,6 +430,12 @@ for (const [label, needle] of [
 ]) {
   check(label, clientSource.includes(needle));
 }
+check(
+  "the audio device never starts on the click path",
+  clientSource.includes("current.notifySound !== true") &&
+    clientSource.includes('addEventListener("pointerdown", scheduleAudioUnlock') &&
+    clientSource.includes("requestIdleCallback")
+);
 // Each feature is a collapsible section so its options can grow in place.
 for (const id of ["effort", "live", "report", "notify"]) {
   check(`the card has a section for ${id}`, clientSource.includes(`id: "${id}"`));
